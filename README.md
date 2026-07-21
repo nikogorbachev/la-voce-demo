@@ -1,4 +1,4 @@
-# La Radio del Carlino – Italian TTS Newsreader
+# La Voce
 
 A minimal **fullstack newsreader app** that converts Italian text into speech using a **finetuned VITS model** on Italian news.  
 
@@ -6,7 +6,6 @@ Built as a prototype for experimenting with **text normalization**, **TTS synthe
 
 Inspired by and based on [vits-finetuning-news-it](https://github.com/n1kg0r/vits-finetuning-news-it)
 
-![App Screenshot](media/screenshot.png)  
 
 ---
 
