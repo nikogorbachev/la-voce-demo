@@ -3,3 +3,6 @@ coqui-tts
 uvicorn 
 soundfile 
 num2words
+gdown
+torch
+transformers<5.0.0

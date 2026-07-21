@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>La Voce — Costi</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="inner">
+      <div class="masthead">
+        <span class="logo-mark">La Voce</span>
+        <span class="tag">TTS Studio Editoriale</span>
+      </div>
+      <nav class="tabs">
+        <a href="index.html">Modelli</a>
+        <a href="pricing.html" class="active">Costi</a>
+        <a href="motivation.html">Perché farlo</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="page">
+    <div class="hero-section">
+      <h1 class="page-title">Costi & Prospetto Architetturale</h1>
+      <p class="page-lede">Analisi economica dell'infrastruttura: bilanciamento tra modelli self-hosted a costo compute marginale e API premium di terze parti.</p>
+    </div>
+
+    <div class="section-block">
+      <div class="section-title">Modelli Open Source (Self-Hosted GCP)</div>
+      <div class="table-card">
+        <table class="pricing">
+          <thead>
+            <tr><th>Modello</th><th>Licenza</th><th>Voice Cloning</th><th>Costo Marginal</th><th>Note Operative</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>VITS In-House</strong></td><td>Proprietaria</td><td>—</td>
+              <td><span class="cost-tag free">Compute GCP</span></td>
+              <td class="notes">Plateau di qualità a ~46k step; necessita nuovo ciclo di dati per progredire.</td>
+            </tr>
+            <tr>
+              <td><strong>Kokoro-82M</strong></td><td>Apache 2.0</td><td>No</td>
+              <td><span class="cost-tag free">Compute GCP</span></td>
+              <td class="notes">Leggerissimo (~2–3GB VRAM), ultra-veloce da servire.</td>
+            </tr>
+            <tr>
+              <td><strong>Chatterbox / Turbo</strong></td><td>MIT</td><td>Sì</td>
+              <td><span class="cost-tag free">Compute GCP</span></td>
+              <td class="notes">Qualità zero-shot elevata; ottimo sostituto open per provider paid.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="section-block">
+      <div class="section-title">Provider Terzi (API Managed)</div>
+      <div class="table-card">
+        <table class="pricing">
+          <thead>
+            <tr><th>Provider</th><th>Voice Cloning</th><th>Costo Indicativo</th><th>Note Operative</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>ElevenLabs</strong></td><td>Sì</td><td><span class="cost-tag paid">~100 $ / M car.</span></td>
+              <td class="notes">Benchmark di mercato per naturalezza ed espressività emotiva.</td>
+            </tr>
+            <tr>
+              <td><strong>Fish Audio</strong></td><td>Sì</td><td><span class="cost-tag paid">~15 $ / M car.</span></td>
+              <td class="notes">Economico (~10× inferiore ad ElevenLabs) con supporto multilingual.</td>
+            </tr>
+            <tr>
+              <td><strong>Cartesia (Sonic)</strong></td><td>Sì</td><td><span class="cost-tag paid">~35 $ / M car.</span></td>
+              <td class="notes">Latenza ultra-bassa (40ms); opzione deployment VPC enterprise.</td>
+            </tr>
+            <tr>
+              <td><strong>Mistral (Voxtral)</strong></td><td>Parziale</td><td><span class="cost-tag paid">~16 $ / M car.</span></td>
+              <td class="notes">Ottimo rapporto qualità/prezzo ed elevata conformità GDPR EU.</td>
+            </tr>
+            <tr>
+              <td><strong>Gemini Flash TTS</strong></td><td>No</td><td><span class="cost-tag paid">Tier Gratuito + Usato</span></td>
+              <td class="notes">Ideale per prototyping rapido prima della produzione.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="callout">
+      <div class="callout-title"><i class="fa-solid fa-lightbulb"></i> Raccomandazione Architetturale</div>
+      <p>Proposta: implementare una <strong>routing strategy a due livelli</strong>. Utilizzare un provider premium (Mistral / Cartesia) per la prima pagina e gli editoriali di punta, mantenendo il motore in-house per il 90%+ delle notizie quotidiane e long-tail.</p>
+    </div>
+  </main>
+</body>
+</html>

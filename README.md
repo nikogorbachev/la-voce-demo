@@ -38,7 +38,7 @@ newsreader-app/
 Before running the app, download the pretrained model (not included in this repository due to size):
 
 ```bash
-gdown --id 1Uro2gsqQ8SrcWHwx4BK8FCrBu-Oc0rPt --output best_model.pth
+gdown 1Uro2gsqQ8SrcWHwx4BK8FCrBu-Oc0rPt --output best_model.pth
 ```
 
 ## Usage

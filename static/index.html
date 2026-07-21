@@ -1,51 +1,113 @@
-<!-- static/index.html -->
 <!doctype html>
 <html lang="it">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>La Radio del Carlino</title>
+  <title>La Voce — Modelli</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Newsreader:ital,opsz,wght@0,6..72,400;1,6..72,400&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css" />
-  <link
-  rel="stylesheet"
-  href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
-  />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
 </head>
 <body>
-  <main class="container">
-    <header class="masthead"><span class="smaller">la</span> Radio<span class="smaller"> </span>del Carlino</header>
+  <header class="site-header">
+    <div class="inner">
+      <div class="masthead">
+        <span class="logo-mark">La Voce</span>
+        <span class="tag">TTS Studio Editoriale</span>
+      </div>
+      <nav class="tabs">
+        <a href="index.html" class="active">Modelli</a>
+        <a href="pricing.html">Costi</a>
+        <a href="motivation.html">Perché farlo</a>
+      </nav>
+    </div>
+  </header>
 
-    <textarea id="text" placeholder="Incolla qui l'articolo o il passaggio..."></textarea>
-    <div class="controls">
-        <button id="readBtn" class="icon-btn" title="Leggi testo">
-            <i id="readIcon" class="fa fa-play"></i>
-        </button>
-        <button id="normalizeBtn" class="icon-btn" title="Mostra normalizzazione">
-            <i class="fa fa-magic"></i>
-        </button>
+  <main class="page">
+    <div class="hero-section">
+      <h1 class="page-title">Confronto Modelli TTS</h1>
+      <p class="page-lede">Scegli un motore di sintesi vocale, analizza pro e contro, e testalo in tempo reale. Il checkpoint VITS in-house applica in più la punteggiatura da regia editoriale.</p>
     </div>
 
-    <div id="normPanel" class="panel hidden">
-        <h3>Normalizzazione</h3>
-        <pre id="normResult" class="normpre"></pre>
-        <div class="panel-actions">
-            <button id="useNorm" class="icon-btn small" style="visibility:hidden;" title="Usa testo normalizzato">
-                <i class="fa fa-check"></i>
-            </button>
-            <button id="closeNorm" class="icon-btn small" title="Chiudi">
-                <i class="fa fa-times"></i>
-            </button>
+    <div class="model-layout">
+      <!-- LEFT: model list -->
+      <div class="sidebar-col">
+        <div class="group-label">In-house & Open Source <span class="sub">Inferenza Gratuita</span></div>
+        <div class="model-list" id="ossList"></div>
+
+        <div class="group-label">Provider Terzi <span class="sub">API a Pagamento</span></div>
+        <div class="model-list" id="paidList"></div>
+      </div>
+
+      <!-- RIGHT: detail + workspace -->
+      <div class="workspace-col">
+        <div class="workspace">
+          <div class="detail-head">
+            <div>
+              <h2 id="detTitle"></h2>
+            </div>
+            <span class="badge" id="detBadge"></span>
+          </div>
+          <p class="detail-desc" id="detDesc"></p>
+
+          <div class="pros-cons">
+            <div class="pros">
+              <div class="h"><i class="fa-solid fa-circle-check"></i> Pro</div>
+              <div id="detPros"></div>
+            </div>
+            <div class="cons">
+              <div class="h"><i class="fa-solid fa-circle-minus"></i> Contro</div>
+              <div id="detCons"></div>
+            </div>
+          </div>
+
+          <hr class="div" />
+
+          <div class="editor-container">
+            <textarea id="text" placeholder="Incolla qui l'articolo o il passaggio da ascoltare..."></textarea>
+
+            <!-- only shown for the vits in-house model -->
+            <div class="vits-tools hidden" id="vitsTools">
+              <label><input type="checkbox" id="punctToggle" /> Aggiungi punteggiatura da regia (lineette, pause, pronuncia nomi stranieri)</label>
+            </div>
+
+            <div class="controls">
+              <button id="readBtn" class="btn-primary" title="Leggi testo">
+                <i id="readIcon" class="fa fa-play"></i> <span>Genera Audio</span>
+              </button>
+              <button id="normalizeBtn" class="btn-secondary" title="Mostra normalizzazione">
+                <i class="fa fa-wand-magic-sparkles"></i> <span>Normalizza</span>
+              </button>
+            </div>
+          </div>
+
+          <div id="normPanel" class="panel hidden">
+            <div class="panel-header">
+              <h3>Normalizzazione Editoriale</h3>
+              <button id="closeNorm" class="icon-close"><i class="fa fa-times"></i></button>
+            </div>
+            <pre id="normResult" class="normpre"></pre>
+            <div class="panel-actions">
+              <button id="useNorm" class="btn-secondary small">Usa testo normalizzato</button>
+            </div>
+          </div>
+
+          <div id="playerWrap" class="player-wrap hidden">
+            <div class="player-card">
+              <span class="player-label"><i class="fa-solid fa-waveform"></i> Output Sintetizzato</span>
+              <audio id="player" controls></audio>
+            </div>
+          </div>
+
+          <div id="notice" class="notice hidden"></div>
         </div>
+      </div>
     </div>
-
-    <div id="playerWrap" class="player-wrap hidden">
-        <audio id="player" controls></audio>
-    </div>
-
-
-    <!-- <footer class="credit">Demo — prova di TTS italiano con VITS</footer> -->
   </main>
 
+  <script src="models-data.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
