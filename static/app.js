@@ -1,4 +1,3 @@
-// static/app.js
 const ossList = document.getElementById("ossList");
 const paidList = document.getElementById("paidList");
 const detTitle = document.getElementById("detTitle");
@@ -6,7 +5,8 @@ const detBadge = document.getElementById("detBadge");
 const detDesc = document.getElementById("detDesc");
 const detPros = document.getElementById("detPros");
 const detCons = document.getElementById("detCons");
-const vitsTools = document.getElementById("vitsTools");
+
+const normToggle = document.getElementById("normToggle");
 const punctToggle = document.getElementById("punctToggle");
 const notice = document.getElementById("notice");
 
@@ -59,7 +59,18 @@ function renderDetail(id) {
   detPros.innerHTML = m.pros.map(p => `<div>&bull; ${p}</div>`).join("");
   detCons.innerHTML = m.cons.map(c => `<div>&bull; ${c}</div>`).join("");
 
-  vitsTools.classList.toggle("hidden", id !== "vits");
+  // Set default toggle values based on selected model
+  if (m.group === "oss") {
+    normToggle.checked = true;
+  } else {
+    normToggle.checked = false;
+  }
+
+  if (id === "vits") {
+    punctToggle.checked = true;
+  } else {
+    punctToggle.checked = false;
+  }
 }
 
 function showNotice(msg) {
@@ -70,7 +81,7 @@ function hideNotice() {
   notice.classList.add("hidden");
 }
 
-// ---- normalize (VITS-only preview) ----
+// ---- Preview Normalized Text ----
 normalizeBtn.addEventListener("click", async () => {
   const text = textEl.value;
   if (!text.trim()) { alert("Inserisci del testo prima."); return; }
@@ -80,14 +91,18 @@ normalizeBtn.addEventListener("click", async () => {
     const res = await fetch("/normalize", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text, apply_editorial_punctuation: selectedId === "vits" && punctToggle.checked }),
+      body: JSON.stringify({ 
+        text, 
+        normalize: normToggle.checked,
+        punctuation: punctToggle.checked
+      }),
     });
-    if (!res.ok) throw new Error("Errore normalize");
+    if (!res.ok) throw new Error("Errore durante la normalizzazione");
     const data = await res.json();
-    normResult.textContent = `Originale:\n${data.original}\n\nNormalizzato:\n${data.normalized}`;
+    normResult.textContent = data.normalized;
     normPanel.classList.remove("hidden");
   } catch (err) {
-    alert("Errore nella normalizzazione: " + err.message);
+    alert("Errore: " + err.message);
   } finally {
     normalizeBtn.disabled = false;
   }
@@ -95,12 +110,11 @@ normalizeBtn.addEventListener("click", async () => {
 
 closeNorm.addEventListener("click", () => normPanel.classList.add("hidden"));
 useNorm.addEventListener("click", () => {
-  const parts = normResult.textContent.split("\n\nNormalizzato:\n");
-  if (parts.length === 2) textEl.value = parts[1];
+  textEl.value = normResult.textContent;
   normPanel.classList.add("hidden");
 });
 
-// ---- read / synthesize ----
+// ---- Read / Synthesize ----
 readBtn.addEventListener("click", async () => {
   const text = textEl.value;
   if (!text.trim()) { alert("Inserisci del testo prima."); return; }
@@ -117,7 +131,8 @@ readBtn.addEventListener("click", async () => {
       body: JSON.stringify({
         text,
         model_id: selectedId,
-        apply_editorial_punctuation: selectedId === "vits" && punctToggle.checked,
+        normalize: normToggle.checked,
+        punctuation: punctToggle.checked
       }),
     });
 
@@ -128,7 +143,7 @@ readBtn.addEventListener("click", async () => {
     }
     if (!res.ok) {
       const err = await res.json();
-      throw new Error(err.detail || "TTS failed");
+      throw new Error(err.detail || "Sintesi vocale fallita");
     }
 
     const blob = await res.blob();
@@ -145,7 +160,53 @@ readBtn.addEventListener("click", async () => {
   }
 });
 
-// init
+// Init
 renderList(ossList, "oss");
 renderList(paidList, "paid");
 renderDetail(selectedId);
+
+
+// Add to your DOM elements references at top of app.js
+const samplePills = document.querySelectorAll(".sample-pill");
+const charCount = document.getElementById("charCount");
+const clearTextBtn = document.getElementById("clearTextBtn");
+
+// Preset sample texts for instant testing during the pitch
+const SAMPLES = {
+  intro: "Buongiorno. Sono la sintesi vocale di Quotidiano Nazionale. Ecco le ultime notizie.",
+  breaking: "A New York ha vinto le elezioni Zohran Mamdani, scatenando polemiche.",
+  economy: "Piazza Affari chiude in rialzo dello 0.75%. Il titolo Stellantis guadagna terreno a Milano dopo i dati sulle vendite."
+};
+
+// Update Character Count
+function updateCharCount() {
+  const len = textEl.value.length;
+  charCount.textContent = `${len} caratteri`;
+}
+
+textEl.addEventListener("input", updateCharCount);
+
+// Sample Pill Clicks
+samplePills.forEach(pill => {
+  pill.addEventListener("click", () => {
+    samplePills.forEach(p => p.classList.remove("active"));
+    pill.classList.add("active");
+    
+    const key = pill.dataset.sample;
+    if (SAMPLES[key]) {
+      textEl.value = SAMPLES[key];
+      updateCharCount();
+    }
+  });
+});
+
+// Clear Text Action
+clearTextBtn.addEventListener("click", () => {
+  textEl.value = "";
+  updateCharCount();
+  samplePills.forEach(p => p.classList.remove("active"));
+  textEl.focus();
+});
+
+// Initialize count on page load
+updateCharCount();

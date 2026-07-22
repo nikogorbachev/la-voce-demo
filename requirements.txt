@@ -5,4 +5,4 @@ soundfile
 num2words
 gdown
 torch
-transformers<5.0.0
+transformers==5.2.0

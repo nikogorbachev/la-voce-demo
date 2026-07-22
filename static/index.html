@@ -28,7 +28,7 @@
   <main class="page">
     <div class="hero-section">
       <h1 class="page-title">Confronto Modelli TTS</h1>
-      <p class="page-lede">Scegli un motore di sintesi vocale, analizza pro e contro, e testalo in tempo reale. Il checkpoint VITS in-house applica in più la punteggiatura da regia editoriale.</p>
+      <p class="page-lede">Scegli un motore di sintesi vocale, analizza pro e contro, e testalo in tempo reale.</p>
     </div>
 
     <div class="model-layout">
@@ -66,31 +66,62 @@
           <hr class="div" />
 
           <div class="editor-container">
-            <textarea id="text" placeholder="Incolla qui l'articolo o il passaggio da ascoltare..."></textarea>
+            <!-- Interactive Sample Preset Pills -->
+            <div class="sample-pills">
+              <span class="pills-label"><i class="fa-solid fa-wand-magic-sparkles"></i> Test con campioni:</span>
+              <button type="button" class="sample-pill active" data-sample="intro">Intro QN</button>
+              <button type="button" class="sample-pill" data-sample="breaking">Cronaca Esteri</button>
+              <button type="button" class="sample-pill" data-sample="economy">Mercati & Finanza</button>
+            </div>
 
-            <!-- only shown for the vits in-house model -->
-            <div class="vits-tools hidden" id="vitsTools">
-              <label><input type="checkbox" id="punctToggle" /> Aggiungi punteggiatura da regia (lineette, pause, pronuncia nomi stranieri)</label>
+            <!-- Rich Textarea Wrapper -->
+            <div class="textarea-wrapper">
+              <textarea id="text" rows="5" placeholder="Incolla qui l'articolo o il passaggio da ascoltare...">Buongiorno. Sono la sintesi vocale di Quotidiano Nazionale. Ecco le ultime notizie.</textarea>
+              <div class="textarea-footer">
+                <span id="charCount" class="char-count">81 caratteri</span>
+                <button type="button" id="clearTextBtn" class="btn-text-action" title="Pulisci testo">
+                  <i class="fa-solid fa-xmark"></i> Pulisci
+                </button>
+              </div>
+            </div>
+
+            <!-- Preprocessing Toggles Container -->
+            <div class="toggles-container">
+              <label class="toggle-item">
+                <span class="toggle-label-text">
+                  <span class="main-label">Normalizzazione testo</span>
+                  <small>Minuscolo, numeri in lettere, adattamento fonetico</small>
+                </span>
+                <input type="checkbox" id="normToggle" />
+              </label>
+
+              <label class="toggle-item">
+                <span class="toggle-label-text">
+                  <span class="main-label">Punteggiatura da regia</span>
+                  <small>Pause lunghe (—) e stacchi (;) per il modello VITS</small>
+                </span>
+                <input type="checkbox" id="punctToggle" />
+              </label>
             </div>
 
             <div class="controls">
               <button id="readBtn" class="btn-primary" title="Leggi testo">
                 <i id="readIcon" class="fa fa-play"></i> <span>Genera Audio</span>
               </button>
-              <button id="normalizeBtn" class="btn-secondary" title="Mostra normalizzazione">
-                <i class="fa fa-wand-magic-sparkles"></i> <span>Normalizza</span>
+              <button id="normalizeBtn" class="btn-secondary" title="Vedi testo normalizzato">
+                <i class="fa fa-eye"></i> <span>Vedi testo normalizzato</span>
               </button>
             </div>
           </div>
 
           <div id="normPanel" class="panel hidden">
             <div class="panel-header">
-              <h3>Normalizzazione Editoriale</h3>
+              <h3>Anteprima Testo Elaborato</h3>
               <button id="closeNorm" class="icon-close"><i class="fa fa-times"></i></button>
             </div>
             <pre id="normResult" class="normpre"></pre>
             <div class="panel-actions">
-              <button id="useNorm" class="btn-secondary small">Usa testo normalizzato</button>
+              <button id="useNorm" class="btn-secondary small">Sostituisci nell'editor</button>
             </div>
           </div>
 

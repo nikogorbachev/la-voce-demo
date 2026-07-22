@@ -7,11 +7,13 @@ import os
 import asyncio
 import threading
 
-
 import torch
+import transformers.pytorch_utils
+transformers.pytorch_utils.isin_mps_friendly = torch.isin
+
+# NOW import Coqui TTS and Chatterbox
 from TTS.utils.synthesizer import Synthesizer
 import soundfile as sf
-
 
 try:
     from num2words import num2words
@@ -21,7 +23,6 @@ except Exception:
 
 app = FastAPI()
 
-
 ABBREV = {
     r'\bprof\.?\b': 'professore',
     r'\bdott\.?\b': 'dottore',
@@ -29,72 +30,151 @@ ABBREV = {
     r'\bsigra\.?\b': 'signora',
 }
 
-# Third-party providers that aren't wired to a live API key in this environment yet.
-# Add the actual API call for a provider here once you have a key, and remove its
-# id from this set so /tts routes real requests to it instead of returning 501.
-UNCONFIGURED_PROVIDERS = {"elevenlabs", "voxtral", "gemini", "cartesia"}
+# 1. Explicit list of proper names to isolate with commas for VITS attention
+PROPER_NAMES_DICT = [
+    r'\bNew York\b',
+    r'\bZohran Mamdani\b',
+    r'\bWashington\b',
+    r'\bCEO\b',
+]
 
-# Providers that are real local/open-source models but not yet wired into this
-# demo's inference code (e.g. Kokoro, Chatterbox checkpoints not yet deployed
-# alongside the VITS one). Same 501 behavior as third-party providers for now.
+# 2. Phonetic transliteration dictionary for foreign proper names
+PHONETIC_LEXICON = {
+    r'\bNew York\b': 'niuu ioorch',
+    r'\bZohran Mamdani\b': 'zooran mamdaani',
+    r'\bWashington\b': 'uoosh-ing-ton',
+    r'\bCEO\b': 'si-i-o',
+}
+
+UNCONFIGURED_PROVIDERS = {"elevenlabs", "voxtral", "gemini", "cartesia"}
 UNCONFIGURED_OSS_MODELS = {"kokoro", "chatterbox"}
 
 
-def _expand_number(match):
-    s = match.group(0)
-    if HAS_NUM2WORDS:
-        try:
-            return num2words(int(s), lang='it')
-        except Exception:
-            return s
-    return s
-
-
-def normalize_text(text: str) -> str:
-    if text is None:
+def _expand_numbers_and_symbols(text: str) -> str:
+    """
+    Expands percentage signs, decimal numbers (e.g. 0.75 -> zero virgola settantacinque),
+    and standalone integers into Italian words before sentence punctuation processing.
+    """
+    if not text:
         return ""
-    t = text.strip()
-    if t == "":
-        return t
+    t = text
 
-    t = t.lower()
-    for pat, repl in ABBREV.items():
-        t = re.sub(pat, repl, t)
-    t = re.sub(r'\d+', _expand_number, t)
-    t = re.sub(r'\s+', ' ', t)
-    t = t.replace(" ,", ",")
-    t = t.replace(": ", ", ")
+    # 1. Replace percentage signs
+    t = re.sub(r'%', ' percento', t)
 
-    # a bit of hardcoded english spelling parsing
-    t = re.sub(r"cha", "cia", t)
-    t = re.sub(r"cho", "cio", t)
-    t = re.sub(r"chu", "ciu", t)
+    # 2. Expand decimal numbers (e.g., 0.75 or 0,75)
+    def _repl_decimal(match):
+        int_part = match.group(1)
+        dec_part = match.group(2)
+        if HAS_NUM2WORDS:
+            try:
+                int_str = num2words(int(int_part), lang='it')
+                dec_str = num2words(int(dec_part), lang='it')
+                return f"{int_str} virgola {dec_str}"
+            except Exception:
+                return f"{int_part} virgola {dec_part}"
+        return f"{int_part} virgola {dec_part}"
+
+    t = re.sub(r'\b(\d+)[.,](\d+)\b', _repl_decimal, t)
+
+    # 3. Expand remaining integers
+    def _repl_int(match):
+        s = match.group(0)
+        if HAS_NUM2WORDS:
+            try:
+                return num2words(int(s), lang='it')
+            except Exception:
+                return s
+        return s
+
+    t = re.sub(r'\b\d+\b', _repl_int, t)
     return t
 
 
 def apply_editorial_punctuation(text: str) -> str:
     """
-    Placeholder for the optional LLM-assisted pass discussed in planning:
-    call an LLM (e.g. via the Anthropic or Mistral API) to insert
-    newsroom-style pauses/em dashes and phonetic respelling for foreign
-    names (e.g. "Zohran Mamdani" -> "— zooh-ran mam-daani —"), plus doubled
-    vowels to mark stressed syllables.
-
-    This is intentionally a no-op passthrough until an API key + prompt are
-    wired in — it's here so the frontend toggle and /normalize route already
-    have somewhere to plug the real call in without touching app.js again.
+    VITS-specific newsroom punctuation pass:
+    1. Replaces input commas (,) with em-dashes (—).
+    2. Replaces sentence-ending periods (.) with semicolon + em-dash (; —).
+    3. Surrounds ONLY explicit proper names in PROPER_NAMES_DICT with commas.
+    4. Ends the passage cleanly with '; .'.
     """
-    # TODO: replace with a real call, e.g.:
-    #   response = anthropic_client.messages.create(
-    #       model="claude-...",
-    #       messages=[{"role": "user", "content": PUNCTUATION_PROMPT.format(text=text)}],
-    #   )
-    #   return response.content[0].text
-    return text
+    if not text:
+        return ""
+    t = text.strip()
+
+    # Step 1: Turn all input commas into em-dashes
+    t = re.sub(r'\s*,\s*', ' — ', t)
+
+    # Step 2: Turn all sentence-ending periods into semicolon + em-dash
+    t = re.sub(r'\s*\.\s*', '; — ', t)
+
+    # Step 3: Annotate ONLY explicit proper names from dictionary with commas
+    for pattern in PROPER_NAMES_DICT:
+        t = re.sub(pattern, lambda m: f", {m.group(0)} ,", t, flags=re.IGNORECASE)
+
+    # Step 4: Clean up multiple spaces
+    t = re.sub(r'\s+', ' ', t).strip()
+
+    # Step 5: Remove trailing em-dash or semicolon before appending final '; .'
+    t = re.sub(r'(?:;\s*—|—|;)\s*$', '', t).strip()
+
+    # Step 6: Wrap string with leading comma and trailing '; .'
+    return f", {t}; ."
 
 
-model_checkpoint_path = "best_model.pth"
-config_path = "config.json"
+def normalize_text(text: str) -> str:
+    """
+    Standard normalization pass:
+    - Transliterates English proper names using PHONETIC_LEXICON
+    - Lowercase conversion
+    - Expands abbreviations
+    """
+    if not text:
+        return ""
+    t = text.strip()
+    if not t:
+        return t
+
+    # Apply phonetic transliteration for English proper names
+    for pattern, replacement in PHONETIC_LEXICON.items():
+        t = re.sub(pattern, replacement, t, flags=re.IGNORECASE)
+
+    t = t.lower()
+
+    for pat, repl in ABBREV.items():
+        t = re.sub(pat, repl, t)
+
+    # General Italian phonetic fixes
+    t = re.sub(r"cha", "cia", t)
+    t = re.sub(r"cho", "cio", t)
+    t = re.sub(r"chu", "ciu", t)
+
+    # Normalize spacing around punctuation marks
+    t = re.sub(r'\s+', ' ', t).strip()
+    return t
+
+
+def process_text_pipeline(text: str, do_normalize: bool, do_punct: bool) -> str:
+    out = text
+
+    # Pre-process numbers & symbols (% -> percento, 0.75 -> zero virgola settantacinque)
+    # so decimal dots aren't mistaken for sentence periods
+    out = _expand_numbers_and_symbols(out)
+
+    # Run punctuation pass
+    if do_punct:
+        out = apply_editorial_punctuation(out)
+
+    # Run lowercasing & abbreviation expansion
+    if do_normalize:
+        out = normalize_text(out)
+
+    return out
+
+
+model_checkpoint_path = "vits_it_female.pth"
+config_path = "config_it_female.json"
 
 device = "cpu"
 print(f"Starting TTS on device: {device}")
@@ -106,21 +186,19 @@ synthesizer = Synthesizer(
 )
 
 SAMPLE_RATE = synthesizer.output_sample_rate
-
 synth_lock = threading.Lock()
 
 
-async def synthesize_wav_bytes(normalized_text: str) -> io.BytesIO:
-    """Run blocking synthesizer in a thread and return a BytesIO WAV buffer."""
-    def _do_synth(text_in):
+async def synthesize_wav_bytes(text_in: str) -> io.BytesIO:
+    def _do_synth(raw_txt):
         with synth_lock:
-            wav = synthesizer.tts(text=text_in, language_name='it')
+            wav = synthesizer.tts(text=raw_txt, language_name='it')
         buf = io.BytesIO()
         sf.write(buf, wav, SAMPLE_RATE, format='WAV')
         buf.seek(0)
         return buf
 
-    buf = await asyncio.to_thread(_do_synth, normalized_text)
+    buf = await asyncio.to_thread(_do_synth, text_in)
     return buf
 
 
@@ -128,13 +206,11 @@ async def synthesize_wav_bytes(normalized_text: str) -> io.BytesIO:
 async def normalize_endpoint(request: Request):
     data = await request.json()
     text = data.get("text", "")
-    apply_punct = bool(data.get("apply_editorial_punctuation", False))
+    do_norm = bool(data.get("normalize", True))
+    do_punct = bool(data.get("punctuation", False))
 
-    normalized = normalize_text(text)
-    if apply_punct:
-        normalized = apply_editorial_punctuation(normalized)
-
-    return JSONResponse({"original": text, "normalized": normalized})
+    processed = process_text_pipeline(text, do_norm, do_punct)
+    return JSONResponse({"original": text, "normalized": processed})
 
 
 @app.post("/tts")
@@ -142,7 +218,8 @@ async def tts_endpoint(request: Request):
     data = await request.json()
     text = data.get("text", "")
     model_id = data.get("model_id", "vits")
-    apply_punct = bool(data.get("apply_editorial_punctuation", False))
+    do_norm = bool(data.get("normalize", True))
+    do_punct = bool(data.get("punctuation", False))
 
     if not text or not text.strip():
         raise HTTPException(status_code=400, detail="No text provided")
@@ -150,27 +227,21 @@ async def tts_endpoint(request: Request):
     if model_id in UNCONFIGURED_PROVIDERS:
         raise HTTPException(
             status_code=501,
-            detail=f"'{model_id}' non è ancora collegato a una chiave API in questo ambiente demo. "
-                    "Aggiungi la chiamata reale in main.py (UNCONFIGURED_PROVIDERS) per attivarlo.",
+            detail=f"'{model_id}' non è ancora collegato a una chiave API in questo ambiente demo."
         )
     if model_id in UNCONFIGURED_OSS_MODELS:
         raise HTTPException(
             status_code=501,
-            detail=f"'{model_id}' non è ancora deployato in questo ambiente demo. "
-                    "Aggiungi il checkpoint/pipeline in main.py (UNCONFIGURED_OSS_MODELS) per attivarlo.",
+            detail=f"'{model_id}' non è ancora deployato in questo ambiente demo."
         )
 
-    # Only the in-house VITS path is live end-to-end in this demo.
-    normalized = normalize_text(text)
-    if apply_punct:
-        normalized = apply_editorial_punctuation(normalized)
-
-    wav_buf = await synthesize_wav_bytes(normalized)
+    processed_text = process_text_pipeline(text, do_norm, do_punct)
+    wav_buf = await synthesize_wav_bytes(processed_text)
 
     return StreamingResponse(
         wav_buf,
         media_type="audio/wav",
-        headers={"Content-Disposition": "inline; filename=output.wav"},
+        headers={"Content-Disposition": "inline; filename=output.wav"}
     )
 
 

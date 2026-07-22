@@ -463,6 +463,12 @@ button:disabled {
 
 .player-card audio { width: 100%; }
 
+/* Utility Rule */
+.hidden {
+  display: none !important;
+}
+
+/* Notice Container */
 .notice {
   margin-top: 20px;
   padding: 14px 18px;
@@ -598,3 +604,281 @@ table.pricing td.notes { color: var(--text-secondary); font-size: 13px; }
 
 @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 .loading { animation: spin 1s linear infinite; }
+
+/* ---- EDITOR AREA & PREPROCESSING TOGGLES ---- */
+.editor-container {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+textarea#text {
+  width: 100%;
+  min-height: 160px;
+  padding: 16px;
+  font-size: 15px;
+  line-height: 1.6;
+  border: 1px solid var(--border-ruled);
+  border-radius: var(--radius-md);
+  resize: vertical;
+  font-family: 'Newsreader', Georgia, serif;
+  background: #FCFCFD;
+  color: var(--text-primary);
+  transition: all 0.2s ease;
+}
+
+textarea#text:focus {
+  outline: none;
+  border-color: var(--border-focus);
+  background: #FFFFFF;
+  box-shadow: 0 0 0 1px var(--border-focus);
+}
+
+/* Minimalist Scandinavian Toggles Container */
+.toggles-container {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-ruled);
+  padding: 16px 20px;
+  border-radius: var(--radius-md);
+}
+
+.toggle-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.toggle-item .toggle-label-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.toggle-item .main-label {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+}
+
+.toggle-item small {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  font-weight: 400;
+  line-height: 1.4;
+}
+
+/* Custom Minimalist Switch Styling (Replacing Browser Native Checkbox) */
+.toggle-item input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 38px;
+  height: 22px;
+  background-color: var(--bg-subtle);
+  border: 1px solid var(--border-ruled);
+  border-radius: var(--radius-full);
+  position: relative;
+  cursor: pointer;
+  outline: none;
+  flex-shrink: 0;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+
+.toggle-item input[type="checkbox"]::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  background-color: var(--text-muted);
+  border-radius: 50%;
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.2s ease;
+}
+
+.toggle-item input[type="checkbox"]:checked {
+  background-color: var(--accent-black);
+  border-color: var(--accent-black);
+}
+
+.toggle-item input[type="checkbox"]:checked::after {
+  transform: translateX(16px);
+  background-color: #FFFFFF;
+}
+
+/* ---- BUTTONS & CONTROLS ---- */
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.btn-primary {
+  cursor: pointer;
+  background: var(--accent-black);
+  color: #FFFFFF;
+  border: none;
+  border-radius: var(--radius-full);
+  padding: 12px 24px;
+  font-size: 14px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  transition: all 0.2s ease;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.btn-primary:hover {
+  background: #27272A;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.btn-secondary {
+  cursor: pointer;
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  border: 1px solid var(--border-ruled);
+  border-radius: var(--radius-full);
+  padding: 12px 20px;
+  font-size: 14px;
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  transition: all 0.2s ease;
+}
+
+.btn-secondary:hover {
+  background: var(--bg-subtle);
+  border-color: rgba(9, 9, 11, 0.2);
+}
+
+.btn-secondary.small {
+  padding: 8px 14px;
+  font-size: 12.5px;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none !important;
+  box-shadow: none !important;
+}
+
+
+
+/* ---- SOTA EDITOR & SAMPLE PILLS ---- */
+.sample-pills {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: -4px;
+}
+
+.pills-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: 4px;
+}
+
+.sample-pill {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-ruled);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  padding: 5px 12px;
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.sample-pill:hover {
+  background: var(--bg-subtle);
+  border-color: var(--text-muted);
+  color: var(--text-primary);
+}
+
+.sample-pill.active {
+  background: var(--bg-accent-subtle);
+  border-color: #93C5FD;
+  color: var(--accent-blue);
+  font-weight: 600;
+}
+
+/* Rich Textarea Wrapper */
+.textarea-wrapper {
+  position: relative;
+  background: #FCFCFD;
+  border: 1px solid var(--border-ruled);
+  border-radius: var(--radius-md);
+  transition: all 0.2s ease;
+}
+
+.textarea-wrapper:focus-within {
+  border-color: var(--border-focus);
+  background: #FFFFFF;
+  box-shadow: 0 0 0 1px var(--border-focus);
+}
+
+.textarea-wrapper textarea#text {
+  width: 100%;
+  min-height: 120px;
+  padding: 16px 16px 40px 16px; /* Extra bottom padding for footer bar */
+  font-size: 15px;
+  line-height: 1.6;
+  border: none;
+  background: transparent;
+  resize: vertical;
+  font-family: 'Newsreader', Georgia, serif;
+  color: var(--text-primary);
+  outline: none;
+  box-shadow: none;
+}
+
+.textarea-footer {
+  position: absolute;
+  bottom: 10px;
+  left: 16px;
+  right: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  pointer-events: none; /* Let clicks pass through empty spaces */
+}
+
+.char-count {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  font-family: 'Inter', sans-serif;
+}
+
+.btn-text-action {
+  pointer-events: auto;
+  background: none;
+  border: none;
+  font-size: 12px;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  transition: color 0.15s ease;
+}
+
+.btn-text-action:hover {
+  color: var(--text-primary);
+}
