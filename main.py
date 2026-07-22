@@ -8,12 +8,15 @@ import asyncio
 import threading
 import sys
 import types
+import numpy as np
 import torch
 import torchaudio
 import transformers.pytorch_utils
-transformers.pytorch_utils.isin_mps_friendly = torch.isin  # Patch missing function
 
+# Patch missing function in Transformers 5.x for Coqui TTS
+transformers.pytorch_utils.isin_mps_friendly = torch.isin
 
+import soundfile as sf
 
 # --- Optional Model Libraries ---
 try:
@@ -22,21 +25,20 @@ try:
 except Exception:
     HAS_NUM2WORDS = False
 
-# Kokoro import check
+# Official Kokoro package import check
 try:
-    from pykokoro import Kokoro
+    from kokoro import KPipeline
     HAS_KOKORO = True
 except Exception:
     HAS_KOKORO = False
 
-
-
+# --- Mock Perth Watermarker to bypass Chatterbox watermarking requirement ---
 class DummyWatermarker:
     def __init__(self, *args, **kwargs):
         pass
 
     def apply_watermark(self, wav, *args, **kwargs):
-        return wav  # Return un-watermarked raw audio tensor
+        return wav  # Return un-watermarked raw audio array/tensor
 
     def embed_watermark(self, wav, *args, **kwargs):
         return wav
@@ -45,17 +47,14 @@ mock_perth = types.ModuleType("perth")
 mock_perth.PerthImplicitWatermarker = DummyWatermarker
 sys.modules["perth"] = mock_perth
 
-# Now import Chatterbox safely
-from chatterbox.mtl_tts import ChatterboxMultilingualTTS
-from TTS.utils.synthesizer import Synthesizer
-import soundfile as sf
-
-# Chatterbox import check
+# Now import Chatterbox and Coqui TTS safely
 try:
     from chatterbox.mtl_tts import ChatterboxMultilingualTTS
     HAS_CHATTERBOX = True
 except Exception:
     HAS_CHATTERBOX = False
+
+from TTS.utils.synthesizer import Synthesizer
 
 app = FastAPI()
 
@@ -105,16 +104,17 @@ else:
     print("Warning: VITS checkpoint not found locally. VITS requests will fail until .pth file is provided.")
 
 # --- 2. Kokoro Setup (Lazy Loaded) ---
-kokoro_model = None
+kokoro_pipeline = None
 
 def get_kokoro():
-    global kokoro_model
-    if kokoro_model is None:
+    global kokoro_pipeline
+    if kokoro_pipeline is None:
         if not HAS_KOKORO:
-            raise HTTPException(status_code=500, detail="pykokoro library not installed. Run 'pip install pykokoro'")
-        print("Initializing Kokoro-82M...")
-        kokoro_model = Kokoro()
-    return kokoro_model
+            raise HTTPException(status_code=500, detail="kokoro library not installed. Run 'pip install kokoro'")
+        print("Initializing Kokoro-82M Italian Pipeline...")
+        # 'i' specifies the Italian language pipeline in Kokoro
+        kokoro_pipeline = KPipeline(lang_code='i')
+    return kokoro_pipeline
 
 # --- 3. Chatterbox Setup (Lazy Loaded) ---
 chatterbox_model = None
@@ -231,14 +231,27 @@ async def synthesize_vits(text_in: str) -> io.BytesIO:
 
 
 async def synthesize_kokoro(text_in: str) -> io.BytesIO:
-    k_model = get_kokoro()
+    k_pipe = get_kokoro()
 
     def _do_synth():
         with synth_lock:
-            # Italian voice selection in Kokoro
-            samples, sample_rate = k_model.create(text=text_in, voice="if_sara", speed=1.0, lang="it")
+            # Generate Italian speech using Kokoro's native female Italian voice 'if_sara'
+            generator = k_pipe(text_in, voice="if_sara", speed=1.0)
+            chunks = []
+            for _, _, audio in generator:
+                if audio is not None:
+                    chunks.append(audio)
+
+            if not chunks:
+                raise ValueError("Kokoro produced no audio output.")
+
+            if isinstance(chunks[0], torch.Tensor):
+                wav_np = torch.cat(chunks).cpu().numpy()
+            else:
+                wav_np = np.concatenate(chunks)
+
         buf = io.BytesIO()
-        sf.write(buf, samples, sample_rate, format='WAV')
+        sf.write(buf, wav_np, 24000, format='WAV')
         buf.seek(0)
         return buf
 
@@ -251,15 +264,13 @@ async def synthesize_chatterbox(text_in: str, ref_audio_path: str = None) -> io.
     def _do_synth():
         with synth_lock:
             with torch.no_grad():
-                # Check if the reference cloning audio file exists
                 if ref_audio_path and os.path.exists(ref_audio_path):
                     wav_tensor = cb_model.generate(
                         text_in, 
                         language_id="it", 
-                        audio_prompt_path=ref_audio_path  # Correct argument for Chatterbox
+                        audio_prompt_path=ref_audio_path
                     )
                 else:
-                    # Fallback generation without reference voice
                     wav_tensor = cb_model.generate(text_in, language_id="it")
                 
                 wav_np = wav_tensor.squeeze().cpu().numpy()
