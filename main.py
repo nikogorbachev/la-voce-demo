@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Request, HTTPException
-from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.responses import StreamingResponse, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 import io
 import re
@@ -44,21 +44,9 @@ mock_perth = types.ModuleType("perth")
 mock_perth.PerthImplicitWatermarker = DummyWatermarker
 sys.modules["perth"] = mock_perth
 
-
 # --- Safe Imports AFTER Monkey-Patches ---
 import soundfile as sf
 from TTS.utils.synthesizer import Synthesizer
-
-
-
-
-
-
-
-
-
-
-
 
 # --- Optional Model Libraries ---
 try:
@@ -67,21 +55,17 @@ try:
 except Exception:
     HAS_NUM2WORDS = False
 
-# Official Kokoro package import check
 try:
     from kokoro import KPipeline
     HAS_KOKORO = True
 except Exception:
     HAS_KOKORO = False
 
-
-# Now import Chatterbox and Coqui TTS safely
 try:
     from chatterbox.mtl_tts import ChatterboxMultilingualTTS
     HAS_CHATTERBOX = True
 except Exception:
     HAS_CHATTERBOX = False
-
 
 try:
     from parler_tts import ParlerTTSForConditionalGeneration
@@ -91,16 +75,28 @@ except Exception:
     HAS_PARLER = False
 
 try:
-    from f5_tts.model import DiT
-    from f5_tts.infer.utils_infer import load_model, infer_process
+    from f5_tts.model import DiT, CFM
+    from f5_tts.infer.utils_infer import infer_process, load_vocoder
+    from f5_tts.model.utils import get_tokenizer 
+    from huggingface_hub import hf_hub_download
+    from safetensors.torch import load_file
     HAS_F5 = True
 except Exception:
     HAS_F5 = False
 
-from TTS.utils.synthesizer import Synthesizer
 torch.set_num_threads(4)
 
 app = FastAPI()
+
+# --- Global Environment & Snippet Folder Setup ---
+ENV = os.getenv("ENVIRONMENT", os.getenv("ENV", "DEVELOPMENT")).upper()
+IS_READ_ONLY = ENV in ["STAGING", "PRODUCTION", "DEMO"]
+
+SNIPPETS_DIR = os.path.join(os.path.dirname(__file__), "saved_snippets")
+os.makedirs(SNIPPETS_DIR, exist_ok=True)
+
+if IS_READ_ONLY:
+    print(f"Running in {ENV} mode: Real-time generation disabled. Pre-recorded audio snippets served.")
 
 ABBREV = {
     r'\bprof\.?\b': 'professore',
@@ -110,7 +106,6 @@ ABBREV = {
 }
 
 PROPER_NAMES_DICT = [
-    # r'\bNew York\b',
     r'\bZohran Mamdani\b',
     r'\bWashington\b',
     r'\bCEO\b',
@@ -123,10 +118,7 @@ PHONETIC_LEXICON = {
     r'\bCEO\b': 'si-i-o',
 }
 
-# Only paid APIs remain unconfigured in this demo
 UNCONFIGURED_PROVIDERS = {"elevenlabs", "voxtral", "gemini", "cartesia"}
-
-# Lock for GPU/CPU thread safety across local models
 synth_lock = threading.Lock()
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -137,48 +129,34 @@ vits_checkpoint_path = "vits_it_female.pth"
 vits_config_path = "config_it_female.json"
 
 vits_synthesizer = None
-if os.path.exists(vits_checkpoint_path) and os.path.exists(vits_config_path):
+if not IS_READ_ONLY and os.path.exists(vits_checkpoint_path) and os.path.exists(vits_config_path):
     print("Loading In-House VITS Checkpoint...")
     vits_synthesizer = Synthesizer(
         tts_checkpoint=vits_checkpoint_path,
         tts_config_path=vits_config_path,
         use_cuda=(device == "cuda"),
     )
-else:
-    print("Warning: VITS checkpoint not found locally. VITS requests will fail until .pth file is provided.")
 
-# --- 2. Kokoro Setup (Lazy Loaded) ---
+# --- 2. Lazy Loaded Setup Functions ---
 kokoro_pipeline = None
-
 def get_kokoro():
     global kokoro_pipeline
     if kokoro_pipeline is None:
         if not HAS_KOKORO:
-            raise HTTPException(status_code=500, detail="kokoro library not installed. Run 'pip install kokoro'")
+            raise HTTPException(status_code=500, detail="kokoro library not installed.")
         print("Initializing Kokoro-82M Italian Pipeline...")
-        # 'i' specifies the Italian language pipeline in Kokoro
         kokoro_pipeline = KPipeline(lang_code='i')
     return kokoro_pipeline
 
-# --- 3. Chatterbox Setup (Lazy Loaded) ---
 chatterbox_model = None
-
 def get_chatterbox():
     global chatterbox_model
     if chatterbox_model is None:
         if not HAS_CHATTERBOX:
-            raise HTTPException(
-                status_code=500, 
-                detail="chatterbox-tts library not installed. Run 'pip install chatterbox-tts'"
-            )
-        print("Initializing Chatterbox Multilingual on CPU (bypassing low GPU VRAM)...")
-        # Force device="cpu" so it loads into system RAM instead of 2GB VRAM
+            raise HTTPException(status_code=500, detail="chatterbox-tts library not installed.")
+        print("Initializing Chatterbox Multilingual on CPU...")
         chatterbox_model = ChatterboxMultilingualTTS.from_pretrained(device="cpu")
     return chatterbox_model
-
-
-
-from transformers import AutoTokenizer
 
 parler_model = None
 parler_tokenizer = None
@@ -191,28 +169,13 @@ def get_parler():
             raise HTTPException(status_code=500, detail="parler-tts library not installed.")
         print("Initializing Parler-TTS Mini Multilingual...")
         model_id = "parler-tts/parler-tts-mini-multilingual-v1.1"
-        
-        # 1. Main model
         parler_model = ParlerTTSForConditionalGeneration.from_pretrained(model_id).to("cpu")
-        
-        # 2. Italian text prompt tokenizer
         parler_tokenizer = AutoTokenizer.from_pretrained(model_id)
-        
-        # 3. Voice description prompt tokenizer (Flan-T5 text encoder)
         parler_description_tokenizer = AutoTokenizer.from_pretrained(
             parler_model.config.text_encoder._name_or_path
         )
-        
     return parler_model, parler_tokenizer, parler_description_tokenizer
 
-
-from huggingface_hub import hf_hub_download
-from safetensors.torch import load_file
-from f5_tts.model import DiT, CFM
-from f5_tts.infer.utils_infer import infer_process
-
-from f5_tts.infer.utils_infer import infer_process, load_vocoder
-from f5_tts.model.utils import get_tokenizer 
 f5_model = None
 vocos_vocoder = None
 
@@ -222,28 +185,16 @@ def get_f5():
         if not HAS_F5:
             raise HTTPException(status_code=500, detail="f5-tts library not installed.")
         print("Downloading & Initializing F5-TTS (Italian Checkpoint) and Vocos Vocoder...")
-        
-        # 1. Download model checkpoint file from Hugging Face
-        ckpt_local_path = hf_hub_download(
-            repo_id="alien79/F5-TTS-italian", 
-            filename="model_159600.safetensors"
-        )
-        
-        vocab_local_path = hf_hub_download(
-            repo_id="alien79/F5-TTS-italian",
-            filename="vocab.txt"
-        )
+        ckpt_local_path = hf_hub_download(repo_id="alien79/F5-TTS-italian", filename="model_159600.safetensors")
+        vocab_local_path = hf_hub_download(repo_id="alien79/F5-TTS-italian", filename="vocab.txt")
 
         vocab_char_map, vocab_size = get_tokenizer(vocab_local_path, "custom")
 
-        # 2. Pass vocab_char_map into DiT so it uses char-level embeddings, not byte fallback
         transformer = DiT(
             dim=1024, depth=22, heads=16, ff_mult=2,
-            text_dim=512, conv_layers=4,
-            text_num_embeds=vocab_size,
+            text_dim=512, conv_layers=4, text_num_embeds=vocab_size,
         )
 
-        # 3. CFM also needs the vocab map — this is what list_str_to_tensor checks
         cfm_model = CFM(
             transformer=transformer,
             odeint_kwargs=dict(method="euler"),
@@ -252,7 +203,6 @@ def get_f5():
             vocab_char_map=vocab_char_map,
         ).to("cpu")
         
-        # 4. Load safetensors weights
         state_dict = load_file(ckpt_local_path)
         if "ema_model_state_dict" in state_dict:
             state_dict = state_dict["ema_model_state_dict"]
@@ -264,21 +214,16 @@ def get_f5():
         cfm_model.eval()
         
         f5_model = cfm_model
-        
-        # 5. Load Vocos vocoder (valid parameters: vocoder_name, device)
         vocos_vocoder = load_vocoder(vocoder_name="vocos", device="cpu")
         print("F5-TTS Italian Model and Vocos loaded successfully!")
 
     return f5_model, vocos_vocoder
-
-
 
 # --- Text Processing Helpers ---
 def _expand_numbers_and_symbols(text: str) -> str:
     if not text:
         return ""
     t = text
-
     t = re.sub(r'%', ' percento', t)
 
     def _repl_decimal(match):
@@ -306,12 +251,10 @@ def _expand_numbers_and_symbols(text: str) -> str:
     t = re.sub(r'\b\d+\b', _repl_int, t)
     return t
 
-
 def apply_editorial_punctuation(text: str) -> str:
     if not text:
         return ""
     t = text.strip()
-
     t = re.sub(r'\s*,\s*', ' — ', t)
     t = re.sub(r'\s*\.\s*', '; — ', t)
 
@@ -322,7 +265,6 @@ def apply_editorial_punctuation(text: str) -> str:
     t = re.sub(r'(?:;\s*—|—|;)\s*$', '', t).strip()
     return f", {t}; ."
 
-
 def normalize_text(text: str) -> str:
     if not text:
         return ""
@@ -332,17 +274,14 @@ def normalize_text(text: str) -> str:
         t = re.sub(pattern, replacement, t, flags=re.IGNORECASE)
 
     t = t.lower()
-
     for pat, repl in ABBREV.items():
         t = re.sub(pat, repl, t)
 
     t = re.sub(r"cha", "cia", t)
     t = re.sub(r"cho", "cio", t)
     t = re.sub(r"chu", "ciu", t)
-
     t = re.sub(r'\s+', ' ', t).strip()
     return t
-
 
 def process_text_pipeline(text: str, do_normalize: bool, do_punct: bool) -> str:
     out = _expand_numbers_and_symbols(text)
@@ -352,9 +291,17 @@ def process_text_pipeline(text: str, do_normalize: bool, do_punct: bool) -> str:
         out = normalize_text(out)
     return out
 
+def save_and_wrap_audio(wav_data, samplerate: int, model_id: str) -> io.BytesIO:
+    """Saves generated WAV bytes locally to disk for static demo playback."""
+    out_path = os.path.join(SNIPPETS_DIR, f"{model_id}_latest.wav")
+    sf.write(out_path, wav_data, samplerate, format='WAV')
+    
+    buf = io.BytesIO()
+    sf.write(buf, wav_data, samplerate, format='WAV')
+    buf.seek(0)
+    return buf
 
 # --- Model Inference Synthesizers ---
-
 async def synthesize_vits(text_in: str) -> io.BytesIO:
     if vits_synthesizer is None:
         raise HTTPException(status_code=500, detail="VITS checkpoint not loaded.")
@@ -362,25 +309,17 @@ async def synthesize_vits(text_in: str) -> io.BytesIO:
     def _do_synth():
         with synth_lock:
             wav = vits_synthesizer.tts(text=text_in, language_name='it', length_scale=1.15)
-        buf = io.BytesIO()
-        sf.write(buf, wav, vits_synthesizer.output_sample_rate, format='WAV')
-        buf.seek(0)
-        return buf
+        return save_and_wrap_audio(wav, vits_synthesizer.output_sample_rate, "vits")
 
     return await asyncio.to_thread(_do_synth)
-
 
 async def synthesize_kokoro(text_in: str) -> io.BytesIO:
     k_pipe = get_kokoro()
 
     def _do_synth():
         with synth_lock:
-            # Generate Italian speech using Kokoro's native female Italian voice 'if_sara'
             generator = k_pipe(text_in, voice="if_sara", speed=1.0)
-            chunks = []
-            for _, _, audio in generator:
-                if audio is not None:
-                    chunks.append(audio)
+            chunks = [audio for _, _, audio in generator if audio is not None]
 
             if not chunks:
                 raise ValueError("Kokoro produced no audio output.")
@@ -390,13 +329,9 @@ async def synthesize_kokoro(text_in: str) -> io.BytesIO:
             else:
                 wav_np = np.concatenate(chunks)
 
-        buf = io.BytesIO()
-        sf.write(buf, wav_np, 24000, format='WAV')
-        buf.seek(0)
-        return buf
+        return save_and_wrap_audio(wav_np, 24000, "kokoro")
 
     return await asyncio.to_thread(_do_synth)
-
 
 async def synthesize_chatterbox(text_in: str, ref_audio_path: str = None) -> io.BytesIO:
     cb_model = get_chatterbox()
@@ -404,30 +339,20 @@ async def synthesize_chatterbox(text_in: str, ref_audio_path: str = None) -> io.
     def _do_synth():
         with synth_lock:
             with torch.no_grad():
-                if ref_audio_path and os.path.exists(ref_audio_path):
-                    wav_tensor = cb_model.generate(
-                        text_in, 
-                        language_id="it", 
-                        audio_prompt_path=ref_audio_path
-                    )
-                else:
-                    wav_tensor = cb_model.generate(text_in, language_id="it")
-                
+                ref_path = ref_audio_path if (ref_audio_path and os.path.exists(ref_audio_path)) else "example.wav"
+                wav_tensor = cb_model.generate(
+                    text_in, 
+                    language_id="it", 
+                    audio_prompt_path=ref_path if os.path.exists(ref_path) else None
+                )
                 wav_np = wav_tensor.squeeze().cpu().numpy()
 
-        buf = io.BytesIO()
-        sf.write(buf, wav_np, cb_model.sr, format='WAV')
-        buf.seek(0)
-        return buf
+        return save_and_wrap_audio(wav_np, cb_model.sr, "chatterbox")
 
     return await asyncio.to_thread(_do_synth)
 
-
-
 async def synthesize_parler(text_in: str, description: str = None) -> io.BytesIO:
     model, tokenizer, desc_tokenizer = get_parler()
-    
-    # Use trained Italian speaker 'Julia' to guarantee a female voice output
     if not description:
         description = (
             "Julia's voice is clear and expressive with a slightly warm tone, moderate pace, "
@@ -436,25 +361,18 @@ async def synthesize_parler(text_in: str, description: str = None) -> io.BytesIO
 
     def _do_synth():
         with synth_lock:
-            # Tokenize voice prompt using description_tokenizer
             input_ids = desc_tokenizer(description, return_tensors="pt").input_ids
-            # Tokenize Italian spoken text using main tokenizer
             prompt_input_ids = tokenizer(text_in, return_tensors="pt").input_ids
             
-            # Generate audio using both tokenized inputs
             generation = model.generate(
                 input_ids=input_ids,
                 prompt_input_ids=prompt_input_ids
             )
             audio_arr = generation.cpu().numpy().squeeze()
 
-        buf = io.BytesIO()
-        sf.write(buf, audio_arr, model.config.sampling_rate, format='WAV')
-        buf.seek(0)
-        return buf
+        return save_and_wrap_audio(audio_arr, model.config.sampling_rate, "parler")
 
     return await asyncio.to_thread(_do_synth)
-
 
 async def synthesize_f5(text_in: str, ref_audio_path: str = None) -> io.BytesIO:
     f5, vocoder = get_f5()
@@ -463,10 +381,8 @@ async def synthesize_f5(text_in: str, ref_audio_path: str = None) -> io.BytesIO:
         with synth_lock:
             with torch.no_grad():
                 ref_path = ref_audio_path if (ref_audio_path and os.path.exists(ref_audio_path)) else "example.wav"
-                
-                # Use kwargs explicitly to prevent positional misalignment in batch processing
                 wav_np, sr, _ = infer_process(
-                    ref_audio=ref_path,
+                    ref_audio_path=ref_path,
                     ref_text="I lettori, le persone erano — arrabbiate con noi, gli dicevano ma eeh che fate? E avevano ragione; Allora-, eh, io avevo iniziato a fare la direttrice, era proprio il primo anno che mi sono trovata dentro il caos del Covid e non sapevo, che pesci pigliare",
                     gen_text=text_in,
                     model_obj=f5,
@@ -476,15 +392,35 @@ async def synthesize_f5(text_in: str, ref_audio_path: str = None) -> io.BytesIO:
                     nfe_step=16, 
                 )
                 
-        buf = io.BytesIO()
-        sf.write(buf, wav_np, sr, format='WAV')
-        buf.seek(0)
-        return buf
+        return save_and_wrap_audio(wav_np, sr, "f5")
 
     return await asyncio.to_thread(_do_synth)
 
-
 # --- API Routes ---
+
+@app.get("/config")
+async def config_endpoint():
+    """Returns environment status and available audio snippets to the UI."""
+    existing_snippets = {}
+    for model_id in ["vits", "kokoro", "chatterbox", "parler", "f5"]:
+        path = os.path.join(SNIPPETS_DIR, f"{model_id}_latest.wav")
+        existing_snippets[model_id] = os.path.exists(path)
+
+    return JSONResponse({
+        "environment": ENV,
+        "is_read_only": IS_READ_ONLY,
+        "snippets": existing_snippets
+    })
+
+@app.api_route("/snippets/{model_id}", methods=["GET", "HEAD"])
+async def get_snippet_endpoint(model_id: str):
+    """Serves the saved snippet for a given model if present."""
+    snippet_path = os.path.join(SNIPPETS_DIR, f"{model_id}_latest.wav")
+    
+    if not os.path.exists(snippet_path):
+        raise HTTPException(status_code=404, detail=f"No snippet found for '{model_id}'")
+        
+    return FileResponse(snippet_path, media_type="audio/wav")
 
 @app.post("/normalize")
 async def normalize_endpoint(request: Request):
@@ -496,15 +432,20 @@ async def normalize_endpoint(request: Request):
     processed = process_text_pipeline(text, do_norm, do_punct)
     return JSONResponse({"original": text, "normalized": processed})
 
-
 @app.post("/tts")
 async def tts_endpoint(request: Request):
+    if IS_READ_ONLY:
+        raise HTTPException(
+            status_code=503,
+            detail="In quest'ambiente demo (GCP / Staging) la generazione in tempo reale è disabilitata. Ascolta la demo memorizzata."
+        )
+
     data = await request.json()
     text = data.get("text", "")
     model_id = data.get("model_id", "vits")
     do_norm = bool(data.get("normalize", True))
     do_punct = bool(data.get("punctuation", False))
-    description = data.get("description", None)  # For Parler prompt
+    description = data.get("description", None)
 
     if not text or not text.strip():
         raise HTTPException(status_code=400, detail="No text provided")
@@ -517,7 +458,6 @@ async def tts_endpoint(request: Request):
 
     processed_text = process_text_pipeline(text, do_norm, do_punct)
 
-    # Dynamic Model Router
     if model_id == "vits":
         wav_buf = await synthesize_vits(processed_text)
     elif model_id == "kokoro":
@@ -536,6 +476,5 @@ async def tts_endpoint(request: Request):
         media_type="audio/wav",
         headers={"Content-Disposition": "inline; filename=output.wav"}
     )
-
 
 app.mount("/", StaticFiles(directory="static", html=True), name="static")

@@ -21,7 +21,17 @@ const useNorm = document.getElementById("useNorm");
 const playerWrap = document.getElementById("playerWrap");
 const player = document.getElementById("player");
 
+const samplePills = document.querySelectorAll(".sample-pill");
+const charCount = document.getElementById("charCount");
+const clearTextBtn = document.getElementById("clearTextBtn");
+
 let selectedId = MODELS[0].id;
+
+// Memory cache for active browser session blobs
+const generatedSnippets = {};
+
+// Map of models that have an existing saved_snippets/<model>_latest.wav on disk
+const availableSnippets = {};
 
 function renderList(container, group) {
   container.innerHTML = "";
@@ -47,7 +57,27 @@ function selectModel(id) {
   renderList(paidList, "paid");
   renderDetail(id);
   hideNotice();
-  playerWrap.classList.add("hidden");
+  
+  // Instantly display existing snippet if available for this model tab
+  loadModelSnippet(id);
+}
+
+function loadModelSnippet(modelId) {
+  // 1. In-session generated audio takes top priority
+  if (generatedSnippets[modelId]) {
+    player.src = generatedSnippets[modelId];
+    playerWrap.classList.remove("hidden");
+    return;
+  }
+
+  // 2. Load /saved_snippets/<modelId>_latest.wav if confirmed present on startup scan
+  if (availableSnippets[modelId]) {
+    player.src = `/snippets/${modelId}?t=${Date.now()}`;
+    playerWrap.classList.remove("hidden");
+  } else {
+    player.src = "";
+    playerWrap.classList.add("hidden");
+  }
 }
 
 function renderDetail(id) {
@@ -59,26 +89,37 @@ function renderDetail(id) {
   detPros.innerHTML = m.pros.map(p => `<div>&bull; ${p}</div>`).join("");
   detCons.innerHTML = m.cons.map(c => `<div>&bull; ${c}</div>`).join("");
 
-  // Set default toggle values based on selected model
-  if (m.group === "oss") {
-    normToggle.checked = true;
-  } else {
-    normToggle.checked = false;
-  }
-
-  if (id === "vits") {
-    punctToggle.checked = true;
-  } else {
-    punctToggle.checked = false;
-  }
+  normToggle.checked = (m.group === "oss");
+  punctToggle.checked = (id === "vits");
 }
 
 function showNotice(msg) {
   notice.textContent = msg;
   notice.classList.remove("hidden");
 }
+
 function hideNotice() {
   notice.classList.add("hidden");
+}
+
+// ---- Scan disk on startup for existing /saved_snippets/<model>_latest.wav files ----
+async function scanExistingSnippets() {
+  // Only scan local self-hosted OSS models that save snippets to disk
+  const localModels = MODELS.filter(m => m.group === "oss").map(m => m.id);
+  
+  await Promise.all(
+    localModels.map(async (modelId) => {
+      try {
+        const res = await fetch(`/snippets/${modelId}`, { method: "HEAD" });
+        availableSnippets[modelId] = res.ok;
+      } catch (err) {
+        availableSnippets[modelId] = false;
+      }
+    })
+  );
+
+  // Load preview snippet after scan finishes
+  loadModelSnippet(selectedId);
 }
 
 // ---- Preview Normalized Text ----
@@ -136,9 +177,9 @@ readBtn.addEventListener("click", async () => {
       }),
     });
 
-    if (res.status === 501) {
+    if (res.status === 501 || res.status === 503) {
       const err = await res.json();
-      showNotice(err.detail || "Questo provider non è ancora collegato a una chiave API in questo ambiente demo.");
+      showNotice(err.detail);
       return;
     }
     if (!res.ok) {
@@ -148,6 +189,11 @@ readBtn.addEventListener("click", async () => {
 
     const blob = await res.blob();
     const url = URL.createObjectURL(blob);
+    
+    // Store generated snippet URL in memory and mark disk snippet available
+    generatedSnippets[selectedId] = url;
+    availableSnippets[selectedId] = true;
+
     player.src = url;
     playerWrap.classList.remove("hidden");
     await player.play();
@@ -160,25 +206,13 @@ readBtn.addEventListener("click", async () => {
   }
 });
 
-// Init
-renderList(ossList, "oss");
-renderList(paidList, "paid");
-renderDetail(selectedId);
-
-
-// Add to your DOM elements references at top of app.js
-const samplePills = document.querySelectorAll(".sample-pill");
-const charCount = document.getElementById("charCount");
-const clearTextBtn = document.getElementById("clearTextBtn");
-
-// Preset sample texts for instant testing during the pitch
+// Sample text presets
 const SAMPLES = {
   intro: "Buongiorno. Sono la sintesi vocale di Quotidiano Nazionale. Ecco le ultime notizie.",
   breaking: "A New York ha vinto le elezioni Zohran Mamdani, scatenando polemiche.",
   economy: "Contratto enti locali 25-27, ecco di quanto aumentano gli stipendi. Tutte le novità della bozza di accordo."
 };
 
-// Update Character Count
 function updateCharCount() {
   const len = textEl.value.length;
   charCount.textContent = `${len} caratteri`;
@@ -186,7 +220,6 @@ function updateCharCount() {
 
 textEl.addEventListener("input", updateCharCount);
 
-// Sample Pill Clicks
 samplePills.forEach(pill => {
   pill.addEventListener("click", () => {
     samplePills.forEach(p => p.classList.remove("active"));
@@ -200,7 +233,6 @@ samplePills.forEach(pill => {
   });
 });
 
-// Clear Text Action
 clearTextBtn.addEventListener("click", () => {
   textEl.value = "";
   updateCharCount();
@@ -208,5 +240,11 @@ clearTextBtn.addEventListener("click", () => {
   textEl.focus();
 });
 
-// Initialize count on page load
+// Initial startup execution
+renderList(ossList, "oss");
+renderList(paidList, "paid");
+renderDetail(selectedId);
 updateCharCount();
+
+// Scan for pre-existing .wav files in saved_snippets/
+scanExistingSnippets();
