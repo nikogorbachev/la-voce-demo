@@ -408,7 +408,8 @@ async def config_endpoint():
 
     return JSONResponse({
         "environment": ENV,
-        "is_read_only": IS_READ_ONLY,
+        "is_read_only": IS_READ_ONLY, 
+        # "is_read_only": True, 
         "snippets": existing_snippets
     })
 

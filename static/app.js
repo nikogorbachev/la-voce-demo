@@ -240,6 +240,38 @@ clearTextBtn.addEventListener("click", () => {
   textEl.focus();
 });
 
+// Aggiungi questo all'avvio in app.js
+async function applyEnvironmentSettings() {
+  try {
+    const res = await fetch("/config");
+    if (!res.ok) return;
+    const config = await res.json();
+
+    if (config.is_read_only) {
+      const readBtn = document.getElementById("readBtn");
+      if (readBtn) {
+        // Disabilita il pulsante
+        readBtn.disabled = true;
+        readBtn.classList.add("btn-disabled-cloud");
+
+        // Messaggio in italiano corretto e naturale
+        const tooltipText = "La generazione audio in tempo reale è disponibile solo in ambiente locale. Consulta il README per le istruzioni di esecuzione.";
+        
+        // Imposta l'attributo title nativo per il tooltip
+        readBtn.title = tooltipText;
+
+        // Se preferisci aggiornare anche il testo del bottone:
+        readBtn.innerHTML = `<i class="fas fa-ban"></i> Generazione disabilitata in Cloud`;
+      }
+    }
+  } catch (err) {
+    console.error("Impossibile recuperare la configurazione dell'ambiente:", err);
+  }
+}
+
+// Chiamata durante la fase di inizializzazione
+applyEnvironmentSettings();
+
 // Initial startup execution
 renderList(ossList, "oss");
 renderList(paidList, "paid");

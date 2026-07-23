@@ -882,3 +882,21 @@ button:disabled {
 .btn-text-action:hover {
   color: var(--text-primary);
 }
+
+
+/* Cursore di divieto e stato disabilitato per il pulsante in Cloud */
+#readBtn.btn-disabled-cloud,
+#readBtn:disabled {
+  background-color: #94a3b8 !important;
+  color: #f1f5f9 !important;
+  cursor: not-allowed !important;
+  opacity: 0.7;
+  border-color: #cbd5e1 !important;
+  box-shadow: none !important;
+  pointer-events: auto !important; /* Mantiene attivi gli eventi per mostrare il tooltip al passaggio del mouse */
+}
+
+#readBtn.btn-disabled-cloud:hover {
+  background-color: #64748b !important;
+  transform: none !important;
+}
