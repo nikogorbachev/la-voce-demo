@@ -15,6 +15,11 @@ import transformers.pytorch_utils
 import transformers.utils.import_utils
 from packaging import version
 
+from dotenv import load_dotenv
+
+# Carica le variabili definite nel file .env
+load_dotenv()
+
 # --- Patch 1: MPS Friendly check for Transformers 5.x ---
 transformers.pytorch_utils.isin_mps_friendly = torch.isin
 
@@ -118,7 +123,7 @@ PHONETIC_LEXICON = {
     r'\bCEO\b': 'si-i-o',
 }
 
-UNCONFIGURED_PROVIDERS = {"elevenlabs", "voxtral", "gemini", "cartesia"}
+UNCONFIGURED_PROVIDERS = {"elevenlabs", "voxtral", "gemini"}
 synth_lock = threading.Lock()
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -218,6 +223,37 @@ def get_f5():
         print("F5-TTS Italian Model and Vocos loaded successfully!")
 
     return f5_model, vocos_vocoder
+
+
+# Third-party Providers 
+
+try:
+    from cartesia import AsyncCartesia
+    HAS_CARTESIA = True
+except Exception:
+    HAS_CARTESIA = False
+
+CARTESIA_API_KEY = os.getenv("CARTESIA_API_KEY", None)
+cartesia_client = None
+
+def get_cartesia_client():
+    global cartesia_client
+    if cartesia_client is None:
+        if not HAS_CARTESIA:
+            raise HTTPException(
+                status_code=500, 
+                detail="Libreria 'cartesia' non installata. Esegui 'pip install cartesia'."
+            )
+        if not CARTESIA_API_KEY:
+            raise HTTPException(
+                status_code=501, 
+                detail="La chiave 'CARTESIA_API_KEY' non è stata configurata nelle variabili d'ambiente."
+            )
+        cartesia_client = AsyncCartesia(api_key=CARTESIA_API_KEY)
+    return cartesia_client
+
+
+
 
 # --- Text Processing Helpers ---
 def _expand_numbers_and_symbols(text: str) -> str:
@@ -396,6 +432,41 @@ async def synthesize_f5(text_in: str, ref_audio_path: str = None) -> io.BytesIO:
 
     return await asyncio.to_thread(_do_synth)
 
+
+
+
+
+
+async def synthesize_cartesia(text_in: str) -> io.BytesIO:
+    client = get_cartesia_client()
+
+    try:
+        # Obtain async generator for raw audio bytes
+        audio_stream = await client.tts.bytes(
+            model_id="sonic-3",
+            transcript=text_in,
+            voice={"mode": "id", "id": "30ab9d55-a5f5-4113-849a-dbb29b7dad62"},  # Inserisci il tuo Voice ID
+            output_format={"container": "wav", "encoding": "pcm_s16le", "sample_rate": 44100},
+            language="it",
+        )
+
+        # Consume the async generator into a bytearray
+        audio_data = bytearray()
+        async for chunk in audio_stream:
+            audio_data.extend(chunk)
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Errore API Cartesia: {str(e)}")
+
+    # Save complete audio snippet to local storage
+    out_path = os.path.join(SNIPPETS_DIR, "cartesia_latest.wav")
+    with open(out_path, "wb") as f:
+        f.write(audio_data)
+
+    buf = io.BytesIO(audio_data)
+    buf.seek(0)
+    return buf
+
 # --- API Routes ---
 
 @app.get("/config")
@@ -469,6 +540,8 @@ async def tts_endpoint(request: Request):
         wav_buf = await synthesize_parler(processed_text, description)
     elif model_id == "f5":
         wav_buf = await synthesize_f5(processed_text, 'example.wav')
+    elif model_id == "cartesia":
+            wav_buf = await synthesize_cartesia(processed_text)
     else:
         raise HTTPException(status_code=400, detail=f"Modello sconosciuto: {model_id}")
 
