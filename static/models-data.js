@@ -32,6 +32,25 @@ const MODELS = [
     pros: ["Licenza MIT: uso commerciale e finetuning senza vincoli", "Supporta voice cloning", "Candidato diretto a sostituire/affiancare VITS"],
     cons: ["Qualità italiana da validare con test propri", "Richiede comunque GPU per inferenza in tempi ragionevoli"],
   },
+  // Add to MODELS array in static/models-data.js
+  {
+    id: "parler",
+    group: "oss",
+    name: "Parler-TTS Mini (Multilingual)",
+    short: "Hugging Face · Prompting testuale di stile",
+    desc: "Genera voce in italiano controllando stile, tono ed emozione tramite descrizione testuale (es. 'Voce femminile con ritmo incalzante da radiogiornale').",
+    pros: ["Controllo dello stile via prompt senza file audio", "Nativamente multilingue (italiano incluso)"],
+    cons: ["Integrazione via prompt richiede tuning del testo di regia"]
+  },
+  {
+    id: "f5",
+    group: "oss",
+    name: "F5-TTS (Italian Fine-Tune)",
+    short: "Flow Matching · Zero-shot clone eccellente",
+    desc: "Architettura basata su Diffusion Transformer e Flow Matching. Finetunata appositamente per l'italiano per garantire fonetica e accenti naturali.",
+    pros: ["Qualità di clonaggio zero-shot superiore a VITS", "Generazione parallela veloce"],
+    cons: ["Richiede il checkpoint dedicato per la lingua italiana"]
+  },
   {
     id: "elevenlabs",
     group: "paid",
