@@ -175,7 +175,7 @@ const clearTextBtn = document.getElementById("clearTextBtn");
 const SAMPLES = {
   intro: "Buongiorno. Sono la sintesi vocale di Quotidiano Nazionale. Ecco le ultime notizie.",
   breaking: "A New York ha vinto le elezioni Zohran Mamdani, scatenando polemiche.",
-  economy: "Piazza Affari chiude in rialzo dello 0.75%. Il titolo Stellantis guadagna terreno a Milano dopo i dati sulle vendite."
+  economy: "Contratto enti locali 25-27, ecco di quanto aumentano gli stipendi. Tutte le novità della bozza di accordo."
 };
 
 // Update Character Count

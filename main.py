@@ -109,7 +109,7 @@ ABBREV = {
 }
 
 PROPER_NAMES_DICT = [
-    r'\bNew York\b',
+    # r'\bNew York\b',
     r'\bZohran Mamdani\b',
     r'\bWashington\b',
     r'\bCEO\b',
@@ -177,20 +177,32 @@ def get_chatterbox():
 
 
 
+from transformers import AutoTokenizer
+
 parler_model = None
 parler_tokenizer = None
+parler_description_tokenizer = None
 
 def get_parler():
-    global parler_model, parler_tokenizer
+    global parler_model, parler_tokenizer, parler_description_tokenizer
     if parler_model is None:
         if not HAS_PARLER:
             raise HTTPException(status_code=500, detail="parler-tts library not installed.")
         print("Initializing Parler-TTS Mini Multilingual...")
-        parler_model = ParlerTTSForConditionalGeneration.from_pretrained(
-            "parler-tts/parler-tts-mini-multilingual-v1.1"
-        ).to("cpu")
-        parler_tokenizer = AutoTokenizer.from_pretrained("parler-tts/parler-tts-mini-multilingual-v1.1")
-    return parler_model, parler_tokenizer
+        model_id = "parler-tts/parler-tts-mini-multilingual-v1.1"
+        
+        # 1. Main model
+        parler_model = ParlerTTSForConditionalGeneration.from_pretrained(model_id).to("cpu")
+        
+        # 2. Italian text prompt tokenizer
+        parler_tokenizer = AutoTokenizer.from_pretrained(model_id)
+        
+        # 3. Voice description prompt tokenizer (Flan-T5 text encoder)
+        parler_description_tokenizer = AutoTokenizer.from_pretrained(
+            parler_model.config.text_encoder._name_or_path
+        )
+        
+    return parler_model, parler_tokenizer, parler_description_tokenizer
 
 
 from huggingface_hub import hf_hub_download
@@ -333,7 +345,7 @@ async def synthesize_vits(text_in: str) -> io.BytesIO:
     
     def _do_synth():
         with synth_lock:
-            wav = vits_synthesizer.tts(text=text_in, language_name='it')
+            wav = vits_synthesizer.tts(text=text_in, language_name='it', length_scale=1.15)
         buf = io.BytesIO()
         sf.write(buf, wav, vits_synthesizer.output_sample_rate, format='WAV')
         buf.seek(0)
@@ -397,18 +409,26 @@ async def synthesize_chatterbox(text_in: str, ref_audio_path: str = None) -> io.
 
 
 async def synthesize_parler(text_in: str, description: str = None) -> io.BytesIO:
-    model, tokenizer = get_parler()
+    model, tokenizer, desc_tokenizer = get_parler()
+    
+    # Use trained Italian speaker 'Julia' to guarantee a female voice output
     if not description:
-        description = "A female Italian speaker with a clear and expressive voice, speaking in a newsroom setting."
+        description = (
+            "Julia's voice is clear and expressive with a slightly warm tone, moderate pace, "
+            "very high audio quality, close-mic recording, like a news narrator"
+        )
 
     def _do_synth():
         with synth_lock:
-            inputs = tokenizer(description, return_tensors="pt")
-            prompt_input = tokenizer(text_in, return_tensors="pt")
+            # Tokenize voice prompt using description_tokenizer
+            input_ids = desc_tokenizer(description, return_tensors="pt").input_ids
+            # Tokenize Italian spoken text using main tokenizer
+            prompt_input_ids = tokenizer(text_in, return_tensors="pt").input_ids
             
+            # Generate audio using both tokenized inputs
             generation = model.generate(
-                input_ids=inputs.input_ids,
-                prompt_input_ids=prompt_input.input_ids
+                input_ids=input_ids,
+                prompt_input_ids=prompt_input_ids
             )
             audio_arr = generation.cpu().numpy().squeeze()
 
@@ -426,7 +446,7 @@ async def synthesize_f5(text_in: str, ref_audio_path: str = None) -> io.BytesIO:
     def _do_synth():
         with synth_lock:
             with torch.no_grad():
-                ref_path = ref_audio_path if (ref_audio_path and os.path.exists(ref_audio_path)) else "example_voice_cloning.wav"
+                ref_path = ref_audio_path if (ref_audio_path and os.path.exists(ref_audio_path)) else "example.wav"
                 
                 # Run inference process with loaded F5 model
                 wav_np, sr, _ = infer_process(
@@ -483,11 +503,11 @@ async def tts_endpoint(request: Request):
     elif model_id == "kokoro":
         wav_buf = await synthesize_kokoro(processed_text)
     elif model_id == "chatterbox":
-        wav_buf = await synthesize_chatterbox(processed_text, 'example_voice_cloning.wav')
+        wav_buf = await synthesize_chatterbox(processed_text, 'example.wav')
     elif model_id == "parler":
         wav_buf = await synthesize_parler(processed_text, description)
     elif model_id == "f5":
-        wav_buf = await synthesize_f5(processed_text, 'example_voice_cloning.wav')
+        wav_buf = await synthesize_f5(processed_text, 'example.wav')
     else:
         raise HTTPException(status_code=400, detail=f"Modello sconosciuto: {model_id}")
 

@@ -10,7 +10,7 @@ const MODELS = [
     group: "oss",
     name: "VITS (in-house, finetuned)",
     short: "Il nostro checkpoint, ~66k step",
-    desc: "Modello VITS finetunato internamente sulla nostra voce editoriale. Qualità in plateau dopo circa 46k step — prossimo miglioramento richiede più dati, non più training. Nessun costo di inferenza oltre al compute GCP.",
+    desc: "Modello VITS finetunato internamente sulla nostra voce editoriale. Qualità in plateau dopo circa 66k step — prossimo miglioramento richiede più dati, non più training. Nessun costo di inferenza oltre al compute GCP.",
     pros: ["Dati mai fuori dal nostro cloud", "Costo di inferenza ~zero", "Pieno controllo su voce e pipeline"],
     cons: ["Qualità non ancora a livello dei provider premium", "Serve un nuovo ciclo di raccolta dati per migliorare"],
   },
