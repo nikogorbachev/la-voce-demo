@@ -123,7 +123,7 @@ PHONETIC_LEXICON = {
     r'\bCEO\b': 'si-i-o',
 }
 
-UNCONFIGURED_PROVIDERS = {"elevenlabs", "voxtral", "gemini"}
+UNCONFIGURED_PROVIDERS = {"elevenlabs", "voxtral"}
 synth_lock = threading.Lock()
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -251,6 +251,40 @@ def get_cartesia_client():
             )
         cartesia_client = AsyncCartesia(api_key=CARTESIA_API_KEY)
     return cartesia_client
+
+
+
+# --- Gemini Setup ---
+try:
+    from google import genai
+    from google.genai import types
+    HAS_GEMINI = True
+except Exception:
+    HAS_GEMINI = False
+
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", None)
+gemini_client = None
+
+def get_gemini_client():
+    global gemini_client
+    if gemini_client is None:
+        if not HAS_GEMINI:
+            raise HTTPException(
+                status_code=500,
+                detail="Libreria 'google-genai' non installata. Esegui 'pip install google-genai'."
+            )
+        if not GEMINI_API_KEY:
+            raise HTTPException(
+                status_code=501,
+                detail="La chiave 'GEMINI_API_KEY' non è stata configurata nelle variabili d'ambiente."
+            )
+        gemini_client = genai.Client(api_key=GEMINI_API_KEY)
+    return gemini_client
+
+
+
+
+
 
 
 
@@ -467,20 +501,73 @@ async def synthesize_cartesia(text_in: str) -> io.BytesIO:
     buf.seek(0)
     return buf
 
+
+import base64
+import wave
+
+async def synthesize_gemini(text_in: str) -> io.BytesIO:
+    client = get_gemini_client()
+
+    def _do_synth():
+        try:
+            # Generate speech using Gemini 3.1 Flash TTS via the Interactions API
+            interaction = client.interactions.create(
+                model="gemini-3.1-flash-tts-preview",
+                input=f"Read the following text out loud in clear Italian: {text_in}",
+                response_format={"type": "audio"},
+                generation_config={
+                    "speech_config": [
+                        {"voice": "Despina"}  # Options: Kore, Puck, Charon, Fenrir, Despina, etc.
+                    ]
+                }
+            )
+
+            # Extract base64 encoded audio PCM data
+            if not hasattr(interaction, "output_audio") or not interaction.output_audio:
+                raise ValueError("Gemini Interactions API did not return output_audio.")
+
+            raw_pcm = base64.b64decode(interaction.output_audio.data)
+            return raw_pcm
+
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Errore API Gemini: {str(e)}")
+
+    raw_pcm = await asyncio.to_thread(_do_synth)
+
+    # Convert raw PCM bytes to WAV format (24kHz, 1 channel, 16-bit PCM_S16LE)
+    wav_buf = io.BytesIO()
+    with wave.open(wav_buf, "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)      # 16-bit
+        wf.setframerate(24000)  # 24kHz
+        wf.writeframes(raw_pcm)
+
+    wav_bytes = wav_buf.getvalue()
+
+    # Save to saved_snippets/gemini_latest.wav
+    out_path = os.path.join(SNIPPETS_DIR, "gemini_latest.wav")
+    with open(out_path, "wb") as f:
+        f.write(wav_bytes)
+
+    buf = io.BytesIO(wav_bytes)
+    buf.seek(0)
+    return buf
+
+
+
+
 # --- API Routes ---
 
 @app.get("/config")
 async def config_endpoint():
-    """Returns environment status and available audio snippets to the UI."""
     existing_snippets = {}
-    for model_id in ["vits", "kokoro", "chatterbox", "parler", "f5"]:
+    for model_id in ["vits", "kokoro", "chatterbox", "parler", "f5", "cartesia", "gemini"]:
         path = os.path.join(SNIPPETS_DIR, f"{model_id}_latest.wav")
         existing_snippets[model_id] = os.path.exists(path)
 
     return JSONResponse({
         "environment": ENV,
         "is_read_only": IS_READ_ONLY, 
-        # "is_read_only": True, 
         "snippets": existing_snippets
     })
 
@@ -542,6 +629,8 @@ async def tts_endpoint(request: Request):
         wav_buf = await synthesize_f5(processed_text, 'example.wav')
     elif model_id == "cartesia":
             wav_buf = await synthesize_cartesia(processed_text)
+    elif model_id == "gemini":
+        wav_buf = await synthesize_gemini(processed_text)
     else:
         raise HTTPException(status_code=400, detail=f"Modello sconosciuto: {model_id}")
 

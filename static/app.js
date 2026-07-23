@@ -105,7 +105,7 @@ function hideNotice() {
 // ---- Scan disk on startup for existing /saved_snippets/<model>_latest.wav files ----
 async function scanExistingSnippets() {
   // Only scan local self-hosted OSS models that save snippets to disk
-  const localModels = MODELS.filter(m => m.group === "oss").map(m => m.id);
+  const localModels = MODELS.map(m => m.id);
   
   await Promise.all(
     localModels.map(async (modelId) => {
