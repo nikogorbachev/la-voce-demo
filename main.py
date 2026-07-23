@@ -123,7 +123,7 @@ PHONETIC_LEXICON = {
     r'\bCEO\b': 'si-i-o',
 }
 
-UNCONFIGURED_PROVIDERS = {"elevenlabs"}
+UNCONFIGURED_PROVIDERS = set()
 synth_lock = threading.Lock()
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -309,6 +309,36 @@ def get_mistral_client():
             )
         mistral_client = Mistral(api_key=MISTRAL_API_KEY)
     return mistral_client
+
+
+
+
+
+try:
+    from elevenlabs.client import ElevenLabs
+    HAS_ELEVENLABS = True
+except Exception:
+    HAS_ELEVENLABS = False
+
+ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY", None)
+ELEVENLABS_VOICE_ID = os.getenv("ELEVENLABS_VOICE_ID", "21m00Tcm4TlvDq8ikWAM")
+elevenlabs_client = None
+
+def get_elevenlabs_client():
+    global elevenlabs_client
+    if elevenlabs_client is None:
+        if not HAS_ELEVENLABS:
+            raise HTTPException(
+                status_code=500,
+                detail="Libreria 'elevenlabs' non installata. Esegui 'pip install elevenlabs'."
+            )
+        if not ELEVENLABS_API_KEY:
+            raise HTTPException(
+                status_code=501,
+                detail="La chiave 'ELEVENLABS_API_KEY' non è stata configurata nel file .env."
+            )
+        elevenlabs_client = ElevenLabs(api_key=ELEVENLABS_API_KEY)
+    return elevenlabs_client
 
 
 
@@ -624,6 +654,40 @@ async def synthesize_voxtral(text_in: str) -> io.BytesIO:
 
 
 
+async def synthesize_elevenlabs(text_in: str) -> io.BytesIO:
+    client = get_elevenlabs_client()
+
+    def _do_synth():
+        try:
+            # Chiama l'endpoint di conversione ElevenLabs
+            audio_generator = client.text_to_speech.convert(
+                voice_id=ELEVENLABS_VOICE_ID,
+                text=text_in,
+                model_id="eleven_v3",
+                output_format="mp3_44100_128",
+            )
+
+            # Raccoglie i chunk generati o il payload di byte
+            if isinstance(audio_generator, (bytes, bytearray)):
+                return audio_generator
+            else:
+                return b"".join(audio_generator)
+
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Errore API ElevenLabs: {str(e)}")
+
+    audio_bytes = await asyncio.to_thread(_do_synth)
+
+    # Salva il file locale in saved_snippets/elevenlabs_latest.wav
+    out_path = os.path.join(SNIPPETS_DIR, "elevenlabs_latest.wav")
+    with open(out_path, "wb") as f:
+        f.write(audio_bytes)
+
+    buf = io.BytesIO(audio_bytes)
+    buf.seek(0)
+    return buf
+
+
 
 
 
@@ -632,7 +696,7 @@ async def synthesize_voxtral(text_in: str) -> io.BytesIO:
 @app.get("/config")
 async def config_endpoint():
     existing_snippets = {}
-    for model_id in ["vits", "kokoro", "chatterbox", "parler", "f5", "cartesia", "gemini", "voxtral"]:
+    for model_id in ["vits", "kokoro", "chatterbox", "parler", "f5", "cartesia", "gemini", "voxtral", "elevenlabs"]:
         path = os.path.join(SNIPPETS_DIR, f"{model_id}_latest.wav")
         existing_snippets[model_id] = os.path.exists(path)
 
@@ -704,6 +768,8 @@ async def tts_endpoint(request: Request):
         wav_buf = await synthesize_gemini(processed_text)
     elif model_id == "voxtral":
         wav_buf = await synthesize_voxtral(processed_text)
+    elif model_id == "elevenlabs":
+        wav_buf = await synthesize_elevenlabs(processed_text)
     else:
         raise HTTPException(status_code=400, detail=f"Modello sconosciuto: {model_id}")
 
