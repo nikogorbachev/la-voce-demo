@@ -123,7 +123,7 @@ PHONETIC_LEXICON = {
     r'\bCEO\b': 'si-i-o',
 }
 
-UNCONFIGURED_PROVIDERS = {"elevenlabs", "voxtral"}
+UNCONFIGURED_PROVIDERS = {"elevenlabs"}
 synth_lock = threading.Lock()
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -283,7 +283,32 @@ def get_gemini_client():
 
 
 
+# --- Mistral / Voxtral Setup ---
+try:
+    from mistralai.client import Mistral
+    HAS_MISTRAL = True
+except Exception:
+    HAS_MISTRAL = False
 
+MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY", None)
+VOXTRAL_VOICE_ID = os.getenv("VOXTRAL_VOICE_ID", None)
+mistral_client = None
+
+def get_mistral_client():
+    global mistral_client
+    if mistral_client is None:
+        if not HAS_MISTRAL:
+            raise HTTPException(
+                status_code=500,
+                detail="Libreria 'mistralai' non installata. Esegui 'pip install mistralai'."
+            )
+        if not MISTRAL_API_KEY:
+            raise HTTPException(
+                status_code=501,
+                detail="La chiave 'MISTRAL_API_KEY' non è stata configurata nelle variabili d'ambiente."
+            )
+        mistral_client = Mistral(api_key=MISTRAL_API_KEY)
+    return mistral_client
 
 
 
@@ -556,12 +581,58 @@ async def synthesize_gemini(text_in: str) -> io.BytesIO:
 
 
 
+
+async def synthesize_voxtral(text_in: str) -> io.BytesIO:
+    client = get_mistral_client()
+
+    if not VOXTRAL_VOICE_ID:
+        raise HTTPException(
+            status_code=501,
+            detail="La variabile 'VOXTRAL_VOICE_ID' non è impostata nel file .env."
+        )
+
+    def _do_synth():
+        try:
+            # Correct endpoint and payload according to official SDK docs
+            response = client.audio.speech.complete(
+                model="voxtral-mini-tts-2603",
+                input=text_in,
+                voice_id=VOXTRAL_VOICE_ID,
+                response_format="mp3"
+            )
+
+            # Extract base64 encoded audio data from response
+            if not hasattr(response, "audio_data") or not response.audio_data:
+                raise ValueError("L'API Voxtral non ha restituito alcun dato audio ('audio_data').")
+
+            return base64.b64decode(response.audio_data)
+
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Errore API Voxtral: {str(e)}")
+
+    mp3_bytes = await asyncio.to_thread(_do_synth)
+
+    # Save to saved_snippets/voxtral_latest.mp3 (or .wav for consistency)
+    out_path = os.path.join(SNIPPETS_DIR, "voxtral_latest.wav")
+    with open(out_path, "wb") as f:
+        f.write(mp3_bytes)
+
+    buf = io.BytesIO(mp3_bytes)
+    buf.seek(0)
+    return buf
+
+
+
+
+
+
+
 # --- API Routes ---
 
 @app.get("/config")
 async def config_endpoint():
     existing_snippets = {}
-    for model_id in ["vits", "kokoro", "chatterbox", "parler", "f5", "cartesia", "gemini"]:
+    for model_id in ["vits", "kokoro", "chatterbox", "parler", "f5", "cartesia", "gemini", "voxtral"]:
         path = os.path.join(SNIPPETS_DIR, f"{model_id}_latest.wav")
         existing_snippets[model_id] = os.path.exists(path)
 
@@ -631,6 +702,8 @@ async def tts_endpoint(request: Request):
             wav_buf = await synthesize_cartesia(processed_text)
     elif model_id == "gemini":
         wav_buf = await synthesize_gemini(processed_text)
+    elif model_id == "voxtral":
+        wav_buf = await synthesize_voxtral(processed_text)
     else:
         raise HTTPException(status_code=400, detail=f"Modello sconosciuto: {model_id}")
 
