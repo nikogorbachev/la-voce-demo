@@ -37,20 +37,20 @@ const MODELS = [
     id: "parler",
     group: "oss",
     name: "Parler-TTS Mini (Multilingual)",
-    short: "Hugging Face · Prompting testuale di stile",
-    desc: "Genera voce in italiano controllando stile, tono ed emozione tramite descrizione testuale (es. 'Voce femminile con ritmo incalzante da radiogiornale').",
+    short: "Apache 2.0 · Prompting testuale di stile",
+    desc: "Genera voce in italiano controllando stile, tono ed emozione tramite descrizione testuale (in questa demo usiamo il prompt seguente: 'Julia's voice is clear and expressive with a slightly warm tone, moderate pace, very high audio quality, close-mic recording, like a news narrator').",
     pros: ["Controllo dello stile via prompt senza file audio", "Nativamente multilingue (italiano incluso)"],
     cons: ["Integrazione via prompt richiede tuning del testo di regia"]
   },
-  {
-    id: "f5",
-    group: "oss",
-    name: "F5-TTS (Italian Fine-Tune)",
-    short: "Flow Matching · Zero-shot clone eccellente",
-    desc: "Architettura basata su Diffusion Transformer e Flow Matching. Finetunata appositamente per l'italiano per garantire fonetica e accenti naturali.",
-    pros: ["Qualità di clonaggio zero-shot superiore a VITS", "Generazione parallela veloce"],
-    cons: ["Richiede il checkpoint dedicato per la lingua italiana"]
-  },
+  // {
+  //   id: "f5",
+  //   group: "oss",
+  //   name: "F5-TTS (Italian Fine-Tune)",
+  //   short: "Flow Matching · Zero-shot clone eccellente",
+  //   desc: "Architettura basata su Diffusion Transformer e Flow Matching. Finetunata appositamente per l'italiano per garantire fonetica e accenti naturali.",
+  //   pros: ["Qualità di clonaggio zero-shot superiore a VITS", "Generazione parallela veloce"],
+  //   cons: ["Richiede il checkpoint dedicato per la lingua italiana"]
+  // },
   {
     id: "elevenlabs",
     group: "paid",

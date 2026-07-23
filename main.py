@@ -98,6 +98,7 @@ except Exception:
     HAS_F5 = False
 
 from TTS.utils.synthesizer import Synthesizer
+torch.set_num_threads(4)
 
 app = FastAPI()
 
@@ -210,35 +211,48 @@ from safetensors.torch import load_file
 from f5_tts.model import DiT, CFM
 from f5_tts.infer.utils_infer import infer_process
 
+from f5_tts.infer.utils_infer import infer_process, load_vocoder
+from f5_tts.model.utils import get_tokenizer 
 f5_model = None
+vocos_vocoder = None
 
 def get_f5():
-    global f5_model
+    global f5_model, vocos_vocoder
     if f5_model is None:
         if not HAS_F5:
             raise HTTPException(status_code=500, detail="f5-tts library not installed.")
-        print("Downloading & Initializing F5-TTS (Italian Checkpoint)...")
+        print("Downloading & Initializing F5-TTS (Italian Checkpoint) and Vocos Vocoder...")
         
-        # 1. Download model file
+        # 1. Download model checkpoint file from Hugging Face
         ckpt_local_path = hf_hub_download(
             repo_id="alien79/F5-TTS-italian", 
             filename="model_159600.safetensors"
         )
         
-        # 2. Build DiT architecture backbone
-        transformer = DiT(
-            dim=1024, depth=22, heads=16, ff_mult=2, text_dim=512, conv_layers=4
+        vocab_local_path = hf_hub_download(
+            repo_id="alien79/F5-TTS-italian",
+            filename="vocab.txt"
         )
-        
-        # 3. Wrap inside Conditional Flow Matching (CFM) module
+
+        vocab_char_map, vocab_size = get_tokenizer(vocab_local_path, "custom")
+
+        # 2. Pass vocab_char_map into DiT so it uses char-level embeddings, not byte fallback
+        transformer = DiT(
+            dim=1024, depth=22, heads=16, ff_mult=2,
+            text_dim=512, conv_layers=4,
+            text_num_embeds=vocab_size,
+        )
+
+        # 3. CFM also needs the vocab map — this is what list_str_to_tensor checks
         cfm_model = CFM(
             transformer=transformer,
-            target_sample_rate=24000,
-            n_mel_channels=100,
-            hop_length=256,
+            odeint_kwargs=dict(method="euler"),
+            audio_drop_prob=0.0,
+            cond_drop_prob=0.0,
+            vocab_char_map=vocab_char_map,
         ).to("cpu")
         
-        # 4. Load safetensors weights cleanly
+        # 4. Load safetensors weights
         state_dict = load_file(ckpt_local_path)
         if "ema_model_state_dict" in state_dict:
             state_dict = state_dict["ema_model_state_dict"]
@@ -246,14 +260,16 @@ def get_f5():
             state_dict = state_dict["model_state_dict"]
             
         state_dict = {k.replace("module.", ""): v for k, v in state_dict.items()}
-        
         cfm_model.load_state_dict(state_dict, strict=False)
         cfm_model.eval()
         
         f5_model = cfm_model
-        print("F5-TTS Italian Model loaded successfully!")
+        
+        # 5. Load Vocos vocoder (valid parameters: vocoder_name, device)
+        vocos_vocoder = load_vocoder(vocoder_name="vocos", device="cpu")
+        print("F5-TTS Italian Model and Vocos loaded successfully!")
 
-    return f5_model
+    return f5_model, vocos_vocoder
 
 
 
@@ -441,20 +457,23 @@ async def synthesize_parler(text_in: str, description: str = None) -> io.BytesIO
 
 
 async def synthesize_f5(text_in: str, ref_audio_path: str = None) -> io.BytesIO:
-    f5 = get_f5()
+    f5, vocoder = get_f5()
     
     def _do_synth():
         with synth_lock:
             with torch.no_grad():
                 ref_path = ref_audio_path if (ref_audio_path and os.path.exists(ref_audio_path)) else "example.wav"
                 
-                # Run inference process with loaded F5 model
+                # Use kwargs explicitly to prevent positional misalignment in batch processing
                 wav_np, sr, _ = infer_process(
-                    ref_path,
-                    "",  # Optional reference text
-                    text_in,
-                    f5,
-                    device="cpu"
+                    ref_audio=ref_path,
+                    ref_text="I lettori, le persone erano — arrabbiate con noi, gli dicevano ma eeh che fate? E avevano ragione; Allora-, eh, io avevo iniziato a fare la direttrice, era proprio il primo anno che mi sono trovata dentro il caos del Covid e non sapevo, che pesci pigliare",
+                    gen_text=text_in,
+                    model_obj=f5,
+                    vocoder=vocoder,
+                    device="cpu",
+                    show_info=print,
+                    nfe_step=16, 
                 )
                 
         buf = io.BytesIO()
@@ -463,6 +482,7 @@ async def synthesize_f5(text_in: str, ref_audio_path: str = None) -> io.BytesIO:
         return buf
 
     return await asyncio.to_thread(_do_synth)
+
 
 # --- API Routes ---
 
