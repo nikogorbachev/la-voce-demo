@@ -32,8 +32,9 @@ let selectedSample = "intro"; // Campioni supportati: "intro", "breaking", "econ
 // Testi predefiniti associati ai 3 pulsanti
 const SAMPLES = {
   intro: "Buongiorno. Sono la sintesi vocale di Quotidiano Nazionale. Ecco le ultime notizie.",
-  breaking: "A New York ha vinto le elezioni Zohran Mamdani, scatenando polemiche.",
-  economy: "Contratto enti locali 25-27, ecco di quanto aumentano gli stipendi. Tutte le novità della bozza di accordo."
+  breaking: "“Impossibile da controllare”. Enorme incendio vicino a Madrid: le foto e i video. \n\nCarlos Novillo, responsabile della gestione delle emergenze del governo regionale: “Ha raggiunto il suo momento più critico, e attualmente supera la capacità dei vigili del fuoco di contenerlo”. Più di 100 mila evacuati in Francia.",
+  economy: "Carburanti, 17 centesimi in meno sul diesel fino al 6 agosto. Salta la tassa sulle sigarette. \n\nNessun intervento sulla benzina e soprattutto nessun aumento delle accise sui tabacchi, dopo il no polemico di Lega e Forza Italia che ha aperto uno scontro nella maggioranza.",
+  weather: "Fiammata africana, dopo i nubifragi torna il super caldo: attesi 40 gradi in Emilia Romagna, ecco quando. \n\nSi apre un periodo di alta pressione che potrebbe proseguire per minimo 7-10 giorni, con un graduale aumento termico fino al prossimo weekend, la svolta ad agosto. Ad agosto tempo stabile e soleggiato con temperature decisamente superiori alla norma."
 };
 
 // Cache dei blob generati durante la sessione corrente in memoria
@@ -117,10 +118,13 @@ function hideNotice() {
   notice.classList.add("hidden");
 }
 
-// ---- Controllo all'avvio per tutte le combinazioni di modello + campione ----
+// Testi predefiniti aggiornati con il meteo
+
+
+// Aggiorna la funzione scanExistingSnippets per scansionare anche 'weather'
 async function scanExistingSnippets() {
   const allModels = MODELS.map(m => m.id);
-  const sampleKeys = ["intro", "breaking", "economy"];
+  const sampleKeys = ["intro", "breaking", "economy", "weather"];
   const scanPromises = [];
 
   allModels.forEach(modelId => {
@@ -135,8 +139,6 @@ async function scanExistingSnippets() {
   });
 
   await Promise.all(scanPromises);
-  
-  // Una volta completata la scansione, carica lo snippet di default ("intro")
   loadModelSnippet(selectedId, selectedSample);
 }
 

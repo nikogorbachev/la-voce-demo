@@ -306,20 +306,7 @@ hr.div {
   gap: 14px;
 }
 
-textarea#text {
-  width: 100%;
-  min-height: 160px;
-  padding: 16px;
-  font-size: 15px;
-  line-height: 1.6;
-  border: 1px solid var(--border-ruled);
-  border-radius: var(--radius-md);
-  resize: vertical;
-  font-family: 'Newsreader', Georgia, serif;
-  background: #FCFCFD;
-  color: var(--text-primary);
-  transition: all 0.2s ease;
-}
+
 
 textarea#text:focus {
   outline: none;
@@ -611,7 +598,7 @@ table.pricing td.notes { color: var(--text-secondary); font-size: 13px; }
   flex-direction: column;
   gap: 16px;
 }
-
+/* 
 textarea#text {
   width: 100%;
   min-height: 160px;
@@ -625,7 +612,7 @@ textarea#text {
   background: #FCFCFD;
   color: var(--text-primary);
   transition: all 0.2s ease;
-}
+} */
 
 textarea#text:focus {
   outline: none;
@@ -822,10 +809,13 @@ button:disabled {
 
 /* Rich Textarea Wrapper */
 .textarea-wrapper {
-  position: relative;
+  display: flex;
+  min-height: 160px;
+  flex-direction: column;
   background: #FCFCFD;
   border: 1px solid var(--border-ruled);
   border-radius: var(--radius-md);
+  overflow: hidden;
   transition: all 0.2s ease;
 }
 
@@ -837,8 +827,8 @@ button:disabled {
 
 .textarea-wrapper textarea#text {
   width: 100%;
-  min-height: 120px;
-  padding: 16px 16px 40px 16px; /* Extra bottom padding for footer bar */
+  min-height: 160px;
+  padding: 16px;
   font-size: 15px;
   line-height: 1.6;
   border: none;
@@ -848,27 +838,27 @@ button:disabled {
   color: var(--text-primary);
   outline: none;
   box-shadow: none;
+  margin: 0;
 }
 
 .textarea-footer {
-  position: absolute;
-  bottom: 10px;
-  left: 16px;
-  right: 16px;
+  position: static; /* Removes absolute positioning overlay */
   display: flex;
   align-items: center;
   justify-content: space-between;
-  pointer-events: none; /* Let clicks pass through empty spaces */
+  padding: 8px 16px;
+  /* background: var(--bg-subtle);
+  border-top: 1px solid var(--border-ruled); */
 }
 
 .char-count {
   font-size: 11.5px;
   color: var(--text-muted);
   font-family: 'Inter', sans-serif;
+  font-weight: 500;
 }
 
 .btn-text-action {
-  pointer-events: auto;
   background: none;
   border: none;
   font-size: 12px;

@@ -88,7 +88,7 @@ IS_READ_ONLY = ENV in ["STAGING", "PRODUCTION", "DEMO"]
 SNIPPETS_DIR = os.path.join(os.path.dirname(__file__), "saved_snippets")
 os.makedirs(SNIPPETS_DIR, exist_ok=True)
 
-SAMPLE_KEYS = ["intro", "breaking", "economy"]
+SAMPLE_KEYS = ["intro", "breaking", "economy", "weather"]
 ALL_MODELS = ["vits", "kokoro", "chatterbox", "parler", "f5", "cartesia", "gemini", "voxtral", "elevenlabs"]
 
 ABBREV = {
@@ -102,6 +102,8 @@ PROPER_NAMES_DICT = [
     r'\bZohran Mamdani\b',
     r'\bWashington\b',
     r'\bCEO\b',
+    r'\bCentro Studi Conflavoro\b',
+    r'\bLega e Forza Italia\b'
 ]
 
 PHONETIC_LEXICON = {
@@ -109,6 +111,19 @@ PHONETIC_LEXICON = {
     r'\bZohran Mamdani\b': 'zooran mamdaani',
     r'\bWashington\b': 'uoosh-ing-ton',
     r'\bCEO\b': 'si-i-o',
+    r'\bafricana\b': 'africaana',
+    r'\btemperatur\b': 'temperatuur',
+    r'\bweekend\b': 'uiichend',
+    r'\bBordeaux\b': 'bordoo',
+    r'\bsi valuta\b': 'si vaaluta',
+    r'\bMacron\b': 'Macroon',
+    r'\bMadrid\b': 'madriid',
+    r'\bCarlos Novillo\b': 'caarlos noviillo',
+    r'\bdiesel\b': 'diisel',
+    r'\bil no\b': 'il noo'
+
+
+
 }
 
 UNCONFIGURED_PROVIDERS = set()
@@ -271,6 +286,7 @@ def _expand_numbers_and_symbols(text: str) -> str:
 def apply_editorial_punctuation(text: str) -> str:
     if not text: return ""
     t = re.sub(r'\s*,\s*', ' — ', text.strip())
+    t = re.sub(r'\s*:\s*', ': — ', t)
     t = re.sub(r'\s*\.\s*', '; — ', t)
     for pattern in PROPER_NAMES_DICT:
         t = re.sub(pattern, lambda m: f", {m.group(0)} ,", t, flags=re.IGNORECASE)
