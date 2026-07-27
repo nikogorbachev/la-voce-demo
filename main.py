@@ -14,16 +14,13 @@ import torchaudio
 import transformers.pytorch_utils
 import transformers.utils.import_utils
 from packaging import version
-
 from dotenv import load_dotenv
 
-# Carica le variabili definite nel file .env
 load_dotenv()
 
-# --- Patch 1: MPS Friendly check for Transformers 5.x ---
+# --- Monkey Patches ---
 transformers.pytorch_utils.isin_mps_friendly = torch.isin
 
-# --- Patch 2: Missing function for Coqui TTS compatibility ---
 if not hasattr(transformers.utils.import_utils, "is_torch_greater_or_equal"):
     def is_torch_greater_or_equal(target_version: str) -> bool:
         return version.parse(torch.__version__) >= version.parse(target_version)
@@ -34,26 +31,18 @@ if not hasattr(transformers.utils.import_utils, "is_torchcodec_available"):
         return False
     transformers.utils.import_utils.is_torchcodec_available = is_torchcodec_available
 
-# --- Mock Perth Watermarker to bypass Chatterbox watermarking requirement ---
 class DummyWatermarker:
-    def __init__(self, *args, **kwargs):
-        pass
-
-    def apply_watermark(self, wav, *args, **kwargs):
-        return wav
-
-    def embed_watermark(self, wav, *args, **kwargs):
-        return wav
+    def __init__(self, *args, **kwargs): pass
+    def apply_watermark(self, wav, *args, **kwargs): return wav
+    def embed_watermark(self, wav, *args, **kwargs): return wav
 
 mock_perth = types.ModuleType("perth")
 mock_perth.PerthImplicitWatermarker = DummyWatermarker
 sys.modules["perth"] = mock_perth
 
-# --- Safe Imports AFTER Monkey-Patches ---
 import soundfile as sf
 from TTS.utils.synthesizer import Synthesizer
 
-# --- Optional Model Libraries ---
 try:
     from num2words import num2words
     HAS_NUM2WORDS = True
@@ -93,15 +82,14 @@ torch.set_num_threads(4)
 
 app = FastAPI()
 
-# --- Global Environment & Snippet Folder Setup ---
 ENV = os.getenv("ENVIRONMENT", os.getenv("ENV", "DEVELOPMENT")).upper()
 IS_READ_ONLY = ENV in ["STAGING", "PRODUCTION", "DEMO"]
 
 SNIPPETS_DIR = os.path.join(os.path.dirname(__file__), "saved_snippets")
 os.makedirs(SNIPPETS_DIR, exist_ok=True)
 
-if IS_READ_ONLY:
-    print(f"Running in {ENV} mode: Real-time generation disabled. Pre-recorded audio snippets served.")
+SAMPLE_KEYS = ["intro", "breaking", "economy"]
+ALL_MODELS = ["vits", "kokoro", "chatterbox", "parler", "f5", "cartesia", "gemini", "voxtral", "elevenlabs"]
 
 ABBREV = {
     r'\bprof\.?\b': 'professore',
@@ -127,29 +115,23 @@ UNCONFIGURED_PROVIDERS = set()
 synth_lock = threading.Lock()
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
-print(f"Starting TTS Engine on device: {device}")
 
-# --- 1. In-House VITS Setup ---
 vits_checkpoint_path = "vits_it_female.pth"
 vits_config_path = "config_it_female.json"
 
 vits_synthesizer = None
 if not IS_READ_ONLY and os.path.exists(vits_checkpoint_path) and os.path.exists(vits_config_path):
-    print("Loading In-House VITS Checkpoint...")
     vits_synthesizer = Synthesizer(
         tts_checkpoint=vits_checkpoint_path,
         tts_config_path=vits_config_path,
         use_cuda=(device == "cuda"),
     )
 
-# --- 2. Lazy Loaded Setup Functions ---
 kokoro_pipeline = None
 def get_kokoro():
     global kokoro_pipeline
     if kokoro_pipeline is None:
-        if not HAS_KOKORO:
-            raise HTTPException(status_code=500, detail="kokoro library not installed.")
-        print("Initializing Kokoro-82M Italian Pipeline...")
+        if not HAS_KOKORO: raise HTTPException(status_code=500, detail="kokoro library not installed.")
         kokoro_pipeline = KPipeline(lang_code='i')
     return kokoro_pipeline
 
@@ -157,9 +139,7 @@ chatterbox_model = None
 def get_chatterbox():
     global chatterbox_model
     if chatterbox_model is None:
-        if not HAS_CHATTERBOX:
-            raise HTTPException(status_code=500, detail="chatterbox-tts library not installed.")
-        print("Initializing Chatterbox Multilingual on CPU...")
+        if not HAS_CHATTERBOX: raise HTTPException(status_code=500, detail="chatterbox-tts library not installed.")
         chatterbox_model = ChatterboxMultilingualTTS.from_pretrained(device="cpu")
     return chatterbox_model
 
@@ -170,15 +150,11 @@ parler_description_tokenizer = None
 def get_parler():
     global parler_model, parler_tokenizer, parler_description_tokenizer
     if parler_model is None:
-        if not HAS_PARLER:
-            raise HTTPException(status_code=500, detail="parler-tts library not installed.")
-        print("Initializing Parler-TTS Mini Multilingual...")
+        if not HAS_PARLER: raise HTTPException(status_code=500, detail="parler-tts library not installed.")
         model_id = "parler-tts/parler-tts-mini-multilingual-v1.1"
         parler_model = ParlerTTSForConditionalGeneration.from_pretrained(model_id).to("cpu")
         parler_tokenizer = AutoTokenizer.from_pretrained(model_id)
-        parler_description_tokenizer = AutoTokenizer.from_pretrained(
-            parler_model.config.text_encoder._name_or_path
-        )
+        parler_description_tokenizer = AutoTokenizer.from_pretrained(parler_model.config.text_encoder._name_or_path)
     return parler_model, parler_tokenizer, parler_description_tokenizer
 
 f5_model = None
@@ -187,45 +163,20 @@ vocos_vocoder = None
 def get_f5():
     global f5_model, vocos_vocoder
     if f5_model is None:
-        if not HAS_F5:
-            raise HTTPException(status_code=500, detail="f5-tts library not installed.")
-        print("Downloading & Initializing F5-TTS (Italian Checkpoint) and Vocos Vocoder...")
+        if not HAS_F5: raise HTTPException(status_code=500, detail="f5-tts library not installed.")
         ckpt_local_path = hf_hub_download(repo_id="alien79/F5-TTS-italian", filename="model_159600.safetensors")
         vocab_local_path = hf_hub_download(repo_id="alien79/F5-TTS-italian", filename="vocab.txt")
-
         vocab_char_map, vocab_size = get_tokenizer(vocab_local_path, "custom")
-
-        transformer = DiT(
-            dim=1024, depth=22, heads=16, ff_mult=2,
-            text_dim=512, conv_layers=4, text_num_embeds=vocab_size,
-        )
-
-        cfm_model = CFM(
-            transformer=transformer,
-            odeint_kwargs=dict(method="euler"),
-            audio_drop_prob=0.0,
-            cond_drop_prob=0.0,
-            vocab_char_map=vocab_char_map,
-        ).to("cpu")
-        
+        transformer = DiT(dim=1024, depth=22, heads=16, ff_mult=2, text_dim=512, conv_layers=4, text_num_embeds=vocab_size)
+        cfm_model = CFM(transformer=transformer, odeint_kwargs=dict(method="euler"), audio_drop_prob=0.0, cond_drop_prob=0.0, vocab_char_map=vocab_char_map).to("cpu")
         state_dict = load_file(ckpt_local_path)
-        if "ema_model_state_dict" in state_dict:
-            state_dict = state_dict["ema_model_state_dict"]
-        elif "model_state_dict" in state_dict:
-            state_dict = state_dict["model_state_dict"]
-            
+        state_dict = state_dict.get("ema_model_state_dict", state_dict.get("model_state_dict", state_dict))
         state_dict = {k.replace("module.", ""): v for k, v in state_dict.items()}
         cfm_model.load_state_dict(state_dict, strict=False)
         cfm_model.eval()
-        
         f5_model = cfm_model
         vocos_vocoder = load_vocoder(vocoder_name="vocos", device="cpu")
-        print("F5-TTS Italian Model and Vocos loaded successfully!")
-
     return f5_model, vocos_vocoder
-
-
-# Third-party Providers 
 
 try:
     from cartesia import AsyncCartesia
@@ -239,22 +190,11 @@ cartesia_client = None
 def get_cartesia_client():
     global cartesia_client
     if cartesia_client is None:
-        if not HAS_CARTESIA:
-            raise HTTPException(
-                status_code=500, 
-                detail="Libreria 'cartesia' non installata. Esegui 'pip install cartesia'."
-            )
-        if not CARTESIA_API_KEY:
-            raise HTTPException(
-                status_code=501, 
-                detail="La chiave 'CARTESIA_API_KEY' non è stata configurata nelle variabili d'ambiente."
-            )
+        if not HAS_CARTESIA: raise HTTPException(status_code=500, detail="Libreria 'cartesia' non installata.")
+        if not CARTESIA_API_KEY: raise HTTPException(status_code=501, detail="CARTESIA_API_KEY non configurata.")
         cartesia_client = AsyncCartesia(api_key=CARTESIA_API_KEY)
     return cartesia_client
 
-
-
-# --- Gemini Setup ---
 try:
     from google import genai
     from google.genai import types
@@ -268,22 +208,11 @@ gemini_client = None
 def get_gemini_client():
     global gemini_client
     if gemini_client is None:
-        if not HAS_GEMINI:
-            raise HTTPException(
-                status_code=500,
-                detail="Libreria 'google-genai' non installata. Esegui 'pip install google-genai'."
-            )
-        if not GEMINI_API_KEY:
-            raise HTTPException(
-                status_code=501,
-                detail="La chiave 'GEMINI_API_KEY' non è stata configurata nelle variabili d'ambiente."
-            )
+        if not HAS_GEMINI: raise HTTPException(status_code=500, detail="Libreria 'google-genai' non installata.")
+        if not GEMINI_API_KEY: raise HTTPException(status_code=501, detail="GEMINI_API_KEY non configurata.")
         gemini_client = genai.Client(api_key=GEMINI_API_KEY)
     return gemini_client
 
-
-
-# --- Mistral / Voxtral Setup ---
 try:
     from mistralai.client import Mistral
     HAS_MISTRAL = True
@@ -297,22 +226,10 @@ mistral_client = None
 def get_mistral_client():
     global mistral_client
     if mistral_client is None:
-        if not HAS_MISTRAL:
-            raise HTTPException(
-                status_code=500,
-                detail="Libreria 'mistralai' non installata. Esegui 'pip install mistralai'."
-            )
-        if not MISTRAL_API_KEY:
-            raise HTTPException(
-                status_code=501,
-                detail="La chiave 'MISTRAL_API_KEY' non è stata configurata nelle variabili d'ambiente."
-            )
+        if not HAS_MISTRAL: raise HTTPException(status_code=500, detail="Libreria 'mistralai' non installata.")
+        if not MISTRAL_API_KEY: raise HTTPException(status_code=501, detail="MISTRAL_API_KEY non configurata.")
         mistral_client = Mistral(api_key=MISTRAL_API_KEY)
     return mistral_client
-
-
-
-
 
 try:
     from elevenlabs.client import ElevenLabs
@@ -327,98 +244,62 @@ elevenlabs_client = None
 def get_elevenlabs_client():
     global elevenlabs_client
     if elevenlabs_client is None:
-        if not HAS_ELEVENLABS:
-            raise HTTPException(
-                status_code=500,
-                detail="Libreria 'elevenlabs' non installata. Esegui 'pip install elevenlabs'."
-            )
-        if not ELEVENLABS_API_KEY:
-            raise HTTPException(
-                status_code=501,
-                detail="La chiave 'ELEVENLABS_API_KEY' non è stata configurata nel file .env."
-            )
+        if not HAS_ELEVENLABS: raise HTTPException(status_code=500, detail="Libreria 'elevenlabs' non installata.")
+        if not ELEVENLABS_API_KEY: raise HTTPException(status_code=501, detail="ELEVENLABS_API_KEY non configurata.")
         elevenlabs_client = ElevenLabs(api_key=ELEVENLABS_API_KEY)
     return elevenlabs_client
 
-
-
-
-
 # --- Text Processing Helpers ---
 def _expand_numbers_and_symbols(text: str) -> str:
-    if not text:
-        return ""
-    t = text
-    t = re.sub(r'%', ' percento', t)
-
+    if not text: return ""
+    t = re.sub(r'%', ' percento', text)
     def _repl_decimal(match):
         int_part, dec_part = match.group(1), match.group(2)
         if HAS_NUM2WORDS:
-            try:
-                int_str = num2words(int(int_part), lang='it')
-                dec_str = num2words(int(dec_part), lang='it')
-                return f"{int_str} virgola {dec_str}"
-            except Exception:
-                return f"{int_part} virgola {dec_part}"
+            try: return f"{num2words(int(int_part), lang='it')} virgola {num2words(int(dec_part), lang='it')}"
+            except Exception: pass
         return f"{int_part} virgola {dec_part}"
-
     t = re.sub(r'\b(\d+)[.,](\d+)\b', _repl_decimal, t)
-
     def _repl_int(match):
         s = match.group(0)
         if HAS_NUM2WORDS:
-            try:
-                return num2words(int(s), lang='it')
-            except Exception:
-                return s
+            try: return num2words(int(s), lang='it')
+            except Exception: pass
         return s
-
-    t = re.sub(r'\b\d+\b', _repl_int, t)
-    return t
+    return re.sub(r'\b\d+\b', _repl_int, t)
 
 def apply_editorial_punctuation(text: str) -> str:
-    if not text:
-        return ""
-    t = text.strip()
-    t = re.sub(r'\s*,\s*', ' — ', t)
+    if not text: return ""
+    t = re.sub(r'\s*,\s*', ' — ', text.strip())
     t = re.sub(r'\s*\.\s*', '; — ', t)
-
     for pattern in PROPER_NAMES_DICT:
         t = re.sub(pattern, lambda m: f", {m.group(0)} ,", t, flags=re.IGNORECASE)
-
     t = re.sub(r'\s+', ' ', t).strip()
     t = re.sub(r'(?:;\s*—|—|;)\s*$', '', t).strip()
     return f", {t}; ."
 
 def normalize_text(text: str) -> str:
-    if not text:
-        return ""
+    if not text: return ""
     t = text.strip()
-
     for pattern, replacement in PHONETIC_LEXICON.items():
         t = re.sub(pattern, replacement, t, flags=re.IGNORECASE)
-
     t = t.lower()
     for pat, repl in ABBREV.items():
         t = re.sub(pat, repl, t)
-
     t = re.sub(r"cha", "cia", t)
     t = re.sub(r"cho", "cio", t)
     t = re.sub(r"chu", "ciu", t)
-    t = re.sub(r'\s+', ' ', t).strip()
-    return t
+    return re.sub(r'\s+', ' ', t).strip()
 
 def process_text_pipeline(text: str, do_normalize: bool, do_punct: bool) -> str:
     out = _expand_numbers_and_symbols(text)
-    if do_punct:
-        out = apply_editorial_punctuation(out)
-    if do_normalize:
-        out = normalize_text(out)
+    if do_punct: out = apply_editorial_punctuation(out)
+    if do_normalize: out = normalize_text(out)
     return out
 
-def save_and_wrap_audio(wav_data, samplerate: int, model_id: str) -> io.BytesIO:
-    """Saves generated WAV bytes locally to disk for static demo playback."""
-    out_path = os.path.join(SNIPPETS_DIR, f"{model_id}_latest.wav")
+def save_and_wrap_audio(wav_data, samplerate: int, model_id: str, sample_id: str = "intro") -> io.BytesIO:
+    """Saves generated WAV bytes locally to disk using model_id and sample_id."""
+    out_path = os.path.join(SNIPPETS_DIR, f"{model_id}_{sample_id}.wav")
     sf.write(out_path, wav_data, samplerate, format='WAV')
     
     buf = io.BytesIO()
@@ -426,129 +307,81 @@ def save_and_wrap_audio(wav_data, samplerate: int, model_id: str) -> io.BytesIO:
     buf.seek(0)
     return buf
 
-# --- Model Inference Synthesizers ---
-async def synthesize_vits(text_in: str) -> io.BytesIO:
-    if vits_synthesizer is None:
-        raise HTTPException(status_code=500, detail="VITS checkpoint not loaded.")
-    
+# --- Model Synthesizers ---
+async def synthesize_vits(text_in: str, sample_id: str = "intro") -> io.BytesIO:
+    if vits_synthesizer is None: raise HTTPException(status_code=500, detail="VITS checkpoint not loaded.")
     def _do_synth():
         with synth_lock:
             wav = vits_synthesizer.tts(text=text_in, language_name='it', length_scale=1.15)
-        return save_and_wrap_audio(wav, vits_synthesizer.output_sample_rate, "vits")
-
+        return save_and_wrap_audio(wav, vits_synthesizer.output_sample_rate, "vits", sample_id)
     return await asyncio.to_thread(_do_synth)
 
-async def synthesize_kokoro(text_in: str) -> io.BytesIO:
+async def synthesize_kokoro(text_in: str, sample_id: str = "intro") -> io.BytesIO:
     k_pipe = get_kokoro()
-
     def _do_synth():
         with synth_lock:
             generator = k_pipe(text_in, voice="if_sara", speed=1.0)
             chunks = [audio for _, _, audio in generator if audio is not None]
-
-            if not chunks:
-                raise ValueError("Kokoro produced no audio output.")
-
-            if isinstance(chunks[0], torch.Tensor):
-                wav_np = torch.cat(chunks).cpu().numpy()
-            else:
-                wav_np = np.concatenate(chunks)
-
-        return save_and_wrap_audio(wav_np, 24000, "kokoro")
-
+            if not chunks: raise ValueError("Kokoro produced no audio output.")
+            wav_np = torch.cat(chunks).cpu().numpy() if isinstance(chunks[0], torch.Tensor) else np.concatenate(chunks)
+        return save_and_wrap_audio(wav_np, 24000, "kokoro", sample_id)
     return await asyncio.to_thread(_do_synth)
 
-async def synthesize_chatterbox(text_in: str, ref_audio_path: str = None) -> io.BytesIO:
+async def synthesize_chatterbox(text_in: str, ref_audio_path: str = None, sample_id: str = "intro") -> io.BytesIO:
     cb_model = get_chatterbox()
-
     def _do_synth():
         with synth_lock:
             with torch.no_grad():
                 ref_path = ref_audio_path if (ref_audio_path and os.path.exists(ref_audio_path)) else "example.wav"
-                wav_tensor = cb_model.generate(
-                    text_in, 
-                    language_id="it", 
-                    audio_prompt_path=ref_path if os.path.exists(ref_path) else None
-                )
+                wav_tensor = cb_model.generate(text_in, language_id="it", audio_prompt_path=ref_path if os.path.exists(ref_path) else None)
                 wav_np = wav_tensor.squeeze().cpu().numpy()
-
-        return save_and_wrap_audio(wav_np, cb_model.sr, "chatterbox")
-
+        return save_and_wrap_audio(wav_np, cb_model.sr, "chatterbox", sample_id)
     return await asyncio.to_thread(_do_synth)
 
-async def synthesize_parler(text_in: str, description: str = None) -> io.BytesIO:
+async def synthesize_parler(text_in: str, description: str = None, sample_id: str = "intro") -> io.BytesIO:
     model, tokenizer, desc_tokenizer = get_parler()
     if not description:
-        description = (
-            "Julia's voice is clear and expressive with a slightly warm tone, moderate pace, "
-            "very high audio quality, close-mic recording, like a news narrator"
-        )
-
+        description = "Julia's voice is clear and expressive with a slightly warm tone, moderate pace, very high audio quality, close-mic recording, like a news narrator"
     def _do_synth():
         with synth_lock:
             input_ids = desc_tokenizer(description, return_tensors="pt").input_ids
             prompt_input_ids = tokenizer(text_in, return_tensors="pt").input_ids
-            
-            generation = model.generate(
-                input_ids=input_ids,
-                prompt_input_ids=prompt_input_ids
-            )
+            generation = model.generate(input_ids=input_ids, prompt_input_ids=prompt_input_ids)
             audio_arr = generation.cpu().numpy().squeeze()
-
-        return save_and_wrap_audio(audio_arr, model.config.sampling_rate, "parler")
-
+        return save_and_wrap_audio(audio_arr, model.config.sampling_rate, "parler", sample_id)
     return await asyncio.to_thread(_do_synth)
 
-async def synthesize_f5(text_in: str, ref_audio_path: str = None) -> io.BytesIO:
+async def synthesize_f5(text_in: str, ref_audio_path: str = None, sample_id: str = "intro") -> io.BytesIO:
     f5, vocoder = get_f5()
-    
     def _do_synth():
         with synth_lock:
             with torch.no_grad():
                 ref_path = ref_audio_path if (ref_audio_path and os.path.exists(ref_audio_path)) else "example.wav"
                 wav_np, sr, _ = infer_process(
                     ref_audio_path=ref_path,
-                    ref_text="I lettori, le persone erano — arrabbiate con noi, gli dicevano ma eeh che fate? E avevano ragione; Allora-, eh, io avevo iniziato a fare la direttrice, era proprio il primo anno che mi sono trovata dentro il caos del Covid e non sapevo, che pesci pigliare",
-                    gen_text=text_in,
-                    model_obj=f5,
-                    vocoder=vocoder,
-                    device="cpu",
-                    show_info=print,
-                    nfe_step=16, 
+                    ref_text="I lettori, le persone erano — arrabbiate con noi, gli dicevano ma eeh che fate?",
+                    gen_text=text_in, model_obj=f5, vocoder=vocoder, device="cpu", show_info=print, nfe_step=16,
                 )
-                
-        return save_and_wrap_audio(wav_np, sr, "f5")
-
+        return save_and_wrap_audio(wav_np, sr, "f5", sample_id)
     return await asyncio.to_thread(_do_synth)
 
-
-
-
-
-
-async def synthesize_cartesia(text_in: str) -> io.BytesIO:
+async def synthesize_cartesia(text_in: str, sample_id: str = "intro") -> io.BytesIO:
     client = get_cartesia_client()
-
     try:
-        # Obtain async generator for raw audio bytes
         audio_stream = await client.tts.bytes(
             model_id="sonic-3",
             transcript=text_in,
-            voice={"mode": "id", "id": "30ab9d55-a5f5-4113-849a-dbb29b7dad62"},  # Inserisci il tuo Voice ID
+            voice={"mode": "id", "id": "30ab9d55-a5f5-4113-849a-dbb29b7dad62"},
             output_format={"container": "wav", "encoding": "pcm_s16le", "sample_rate": 44100},
             language="it",
         )
-
-        # Consume the async generator into a bytearray
         audio_data = bytearray()
         async for chunk in audio_stream:
             audio_data.extend(chunk)
-
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Errore API Cartesia: {str(e)}")
 
-    # Save complete audio snippet to local storage
-    out_path = os.path.join(SNIPPETS_DIR, "cartesia_latest.wav")
+    out_path = os.path.join(SNIPPETS_DIR, f"cartesia_{sample_id}.wav")
     with open(out_path, "wb") as f:
         f.write(audio_data)
 
@@ -556,51 +389,35 @@ async def synthesize_cartesia(text_in: str) -> io.BytesIO:
     buf.seek(0)
     return buf
 
-
 import base64
 import wave
 
-async def synthesize_gemini(text_in: str) -> io.BytesIO:
+async def synthesize_gemini(text_in: str, sample_id: str = "intro") -> io.BytesIO:
     client = get_gemini_client()
-
     def _do_synth():
         try:
-            # Generate speech using Gemini 3.1 Flash TTS via the Interactions API
             interaction = client.interactions.create(
                 model="gemini-3.1-flash-tts-preview",
                 input=f"Read the following text out loud in clear Italian: {text_in}",
                 response_format={"type": "audio"},
-                generation_config={
-                    "speech_config": [
-                        {"voice": "Despina"}  # Options: Kore, Puck, Charon, Fenrir, Despina, etc.
-                    ]
-                }
+                generation_config={"speech_config": [{"voice": "Despina"}]}
             )
-
-            # Extract base64 encoded audio PCM data
             if not hasattr(interaction, "output_audio") or not interaction.output_audio:
                 raise ValueError("Gemini Interactions API did not return output_audio.")
-
-            raw_pcm = base64.b64decode(interaction.output_audio.data)
-            return raw_pcm
-
+            return base64.b64decode(interaction.output_audio.data)
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Errore API Gemini: {str(e)}")
 
     raw_pcm = await asyncio.to_thread(_do_synth)
-
-    # Convert raw PCM bytes to WAV format (24kHz, 1 channel, 16-bit PCM_S16LE)
     wav_buf = io.BytesIO()
     with wave.open(wav_buf, "wb") as wf:
         wf.setnchannels(1)
-        wf.setsampwidth(2)      # 16-bit
-        wf.setframerate(24000)  # 24kHz
+        wf.setsampwidth(2)
+        wf.setframerate(24000)
         wf.writeframes(raw_pcm)
 
     wav_bytes = wav_buf.getvalue()
-
-    # Save to saved_snippets/gemini_latest.wav
-    out_path = os.path.join(SNIPPETS_DIR, "gemini_latest.wav")
+    out_path = os.path.join(SNIPPETS_DIR, f"gemini_{sample_id}.wav")
     with open(out_path, "wb") as f:
         f.write(wav_bytes)
 
@@ -608,42 +425,27 @@ async def synthesize_gemini(text_in: str) -> io.BytesIO:
     buf.seek(0)
     return buf
 
-
-
-
-
-async def synthesize_voxtral(text_in: str) -> io.BytesIO:
+async def synthesize_voxtral(text_in: str, sample_id: str = "intro") -> io.BytesIO:
     client = get_mistral_client()
-
     if not VOXTRAL_VOICE_ID:
-        raise HTTPException(
-            status_code=501,
-            detail="La variabile 'VOXTRAL_VOICE_ID' non è impostata nel file .env."
-        )
+        raise HTTPException(status_code=501, detail="VOXTRAL_VOICE_ID non impostata.")
 
     def _do_synth():
         try:
-            # Correct endpoint and payload according to official SDK docs
             response = client.audio.speech.complete(
                 model="voxtral-mini-tts-2603",
                 input=text_in,
                 voice_id=VOXTRAL_VOICE_ID,
                 response_format="mp3"
             )
-
-            # Extract base64 encoded audio data from response
             if not hasattr(response, "audio_data") or not response.audio_data:
-                raise ValueError("L'API Voxtral non ha restituito alcun dato audio ('audio_data').")
-
+                raise ValueError("L'API Voxtral non ha restituito alcun dato audio.")
             return base64.b64decode(response.audio_data)
-
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Errore API Voxtral: {str(e)}")
 
     mp3_bytes = await asyncio.to_thread(_do_synth)
-
-    # Save to saved_snippets/voxtral_latest.mp3 (or .wav for consistency)
-    out_path = os.path.join(SNIPPETS_DIR, "voxtral_latest.wav")
+    out_path = os.path.join(SNIPPETS_DIR, f"voxtral_{sample_id}.wav")
     with open(out_path, "wb") as f:
         f.write(mp3_bytes)
 
@@ -651,35 +453,22 @@ async def synthesize_voxtral(text_in: str) -> io.BytesIO:
     buf.seek(0)
     return buf
 
-
-
-
-async def synthesize_elevenlabs(text_in: str) -> io.BytesIO:
+async def synthesize_elevenlabs(text_in: str, sample_id: str = "intro") -> io.BytesIO:
     client = get_elevenlabs_client()
-
     def _do_synth():
         try:
-            # Chiama l'endpoint di conversione ElevenLabs
             audio_generator = client.text_to_speech.convert(
                 voice_id=ELEVENLABS_VOICE_ID,
                 text=text_in,
                 model_id="eleven_v3",
                 output_format="mp3_44100_128",
             )
-
-            # Raccoglie i chunk generati o il payload di byte
-            if isinstance(audio_generator, (bytes, bytearray)):
-                return audio_generator
-            else:
-                return b"".join(audio_generator)
-
+            return audio_generator if isinstance(audio_generator, (bytes, bytearray)) else b"".join(audio_generator)
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Errore API ElevenLabs: {str(e)}")
 
     audio_bytes = await asyncio.to_thread(_do_synth)
-
-    # Salva il file locale in saved_snippets/elevenlabs_latest.wav
-    out_path = os.path.join(SNIPPETS_DIR, "elevenlabs_latest.wav")
+    out_path = os.path.join(SNIPPETS_DIR, f"elevenlabs_{sample_id}.wav")
     with open(out_path, "wb") as f:
         f.write(audio_bytes)
 
@@ -687,18 +476,16 @@ async def synthesize_elevenlabs(text_in: str) -> io.BytesIO:
     buf.seek(0)
     return buf
 
-
-
-
-
 # --- API Routes ---
 
 @app.get("/config")
 async def config_endpoint():
     existing_snippets = {}
-    for model_id in ["vits", "kokoro", "chatterbox", "parler", "f5", "cartesia", "gemini", "voxtral", "elevenlabs"]:
-        path = os.path.join(SNIPPETS_DIR, f"{model_id}_latest.wav")
-        existing_snippets[model_id] = os.path.exists(path)
+    for model_id in ALL_MODELS:
+        existing_snippets[model_id] = {}
+        for sample_id in SAMPLE_KEYS:
+            path = os.path.join(SNIPPETS_DIR, f"{model_id}_{sample_id}.wav")
+            existing_snippets[model_id][sample_id] = os.path.exists(path)
 
     return JSONResponse({
         "environment": ENV,
@@ -707,12 +494,14 @@ async def config_endpoint():
     })
 
 @app.api_route("/snippets/{model_id}", methods=["GET", "HEAD"])
-async def get_snippet_endpoint(model_id: str):
-    """Serves the saved snippet for a given model if present."""
-    snippet_path = os.path.join(SNIPPETS_DIR, f"{model_id}_latest.wav")
-    
+async def get_snippet_endpoint(model_id: str, sample_id: str = "intro"):
+    """Serves the saved snippet for a model and sample_id (intro, breaking, economy)."""
+    if sample_id not in SAMPLE_KEYS:
+        sample_id = "intro"
+
+    snippet_path = os.path.join(SNIPPETS_DIR, f"{model_id}_{sample_id}.wav")
     if not os.path.exists(snippet_path):
-        raise HTTPException(status_code=404, detail=f"No snippet found for '{model_id}'")
+        raise HTTPException(status_code=404, detail=f"No snippet found for '{model_id}_{sample_id}'")
         
     return FileResponse(snippet_path, media_type="audio/wav")
 
@@ -722,7 +511,6 @@ async def normalize_endpoint(request: Request):
     text = data.get("text", "")
     do_norm = bool(data.get("normalize", True))
     do_punct = bool(data.get("punctuation", False))
-
     processed = process_text_pipeline(text, do_norm, do_punct)
     return JSONResponse({"original": text, "normalized": processed})
 
@@ -731,12 +519,16 @@ async def tts_endpoint(request: Request):
     if IS_READ_ONLY:
         raise HTTPException(
             status_code=503,
-            detail="In quest'ambiente demo (GCP / Staging) la generazione in tempo reale è disabilitata. Ascolta la demo memorizzata."
+            detail="In quest'ambiente demo (GCP / Staging) la generazione in tempo reale è disabilitata."
         )
 
     data = await request.json()
     text = data.get("text", "")
     model_id = data.get("model_id", "vits")
+    sample_id = data.get("sample_id", "intro")
+    if sample_id not in SAMPLE_KEYS:
+        sample_id = "intro"
+
     do_norm = bool(data.get("normalize", True))
     do_punct = bool(data.get("punctuation", False))
     description = data.get("description", None)
@@ -753,23 +545,23 @@ async def tts_endpoint(request: Request):
     processed_text = process_text_pipeline(text, do_norm, do_punct)
 
     if model_id == "vits":
-        wav_buf = await synthesize_vits(processed_text)
+        wav_buf = await synthesize_vits(processed_text, sample_id)
     elif model_id == "kokoro":
-        wav_buf = await synthesize_kokoro(processed_text)
+        wav_buf = await synthesize_kokoro(processed_text, sample_id)
     elif model_id == "chatterbox":
-        wav_buf = await synthesize_chatterbox(processed_text, 'example.wav')
+        wav_buf = await synthesize_chatterbox(processed_text, 'example.wav', sample_id)
     elif model_id == "parler":
-        wav_buf = await synthesize_parler(processed_text, description)
+        wav_buf = await synthesize_parler(processed_text, description, sample_id)
     elif model_id == "f5":
-        wav_buf = await synthesize_f5(processed_text, 'example.wav')
+        wav_buf = await synthesize_f5(processed_text, 'example.wav', sample_id)
     elif model_id == "cartesia":
-            wav_buf = await synthesize_cartesia(processed_text)
+        wav_buf = await synthesize_cartesia(processed_text, sample_id)
     elif model_id == "gemini":
-        wav_buf = await synthesize_gemini(processed_text)
+        wav_buf = await synthesize_gemini(processed_text, sample_id)
     elif model_id == "voxtral":
-        wav_buf = await synthesize_voxtral(processed_text)
+        wav_buf = await synthesize_voxtral(processed_text, sample_id)
     elif model_id == "elevenlabs":
-        wav_buf = await synthesize_elevenlabs(processed_text)
+        wav_buf = await synthesize_elevenlabs(processed_text, sample_id)
     else:
         raise HTTPException(status_code=400, detail=f"Modello sconosciuto: {model_id}")
 

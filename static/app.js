@@ -25,13 +25,26 @@ const samplePills = document.querySelectorAll(".sample-pill");
 const charCount = document.getElementById("charCount");
 const clearTextBtn = document.getElementById("clearTextBtn");
 
+// Stato iniziale dell'applicazione
 let selectedId = MODELS[0].id;
+let selectedSample = "intro"; // Campioni supportati: "intro", "breaking", "economy"
 
-// Memory cache for active browser session blobs
+// Testi predefiniti associati ai 3 pulsanti
+const SAMPLES = {
+  intro: "Buongiorno. Sono la sintesi vocale di Quotidiano Nazionale. Ecco le ultime notizie.",
+  breaking: "A New York ha vinto le elezioni Zohran Mamdani, scatenando polemiche.",
+  economy: "Contratto enti locali 25-27, ecco di quanto aumentano gli stipendi. Tutte le novità della bozza di accordo."
+};
+
+// Cache dei blob generati durante la sessione corrente in memoria
 const generatedSnippets = {};
 
-// Map of models that have an existing saved_snippets/<model>_latest.wav on disk
+// Mappa dei file disponibili su disco (es. key = "vits_intro")
 const availableSnippets = {};
+
+function getSnippetKey(modelId, sampleId = selectedSample) {
+  return `${modelId}_${sampleId}`;
+}
 
 function renderList(container, group) {
   container.innerHTML = "";
@@ -58,21 +71,23 @@ function selectModel(id) {
   renderDetail(id);
   hideNotice();
   
-  // Instantly display existing snippet if available for this model tab
-  loadModelSnippet(id);
+  // Carica lo snippet audio corrispondente al modello e al campione attivo
+  loadModelSnippet(id, selectedSample);
 }
 
-function loadModelSnippet(modelId) {
-  // 1. In-session generated audio takes top priority
-  if (generatedSnippets[modelId]) {
-    player.src = generatedSnippets[modelId];
+function loadModelSnippet(modelId, sampleId = selectedSample) {
+  const key = getSnippetKey(modelId, sampleId);
+
+  // 1. Priorità all'audio generato nella sessione di lavoro corrente
+  if (generatedSnippets[key]) {
+    player.src = generatedSnippets[key];
     playerWrap.classList.remove("hidden");
     return;
   }
 
-  // 2. Load /saved_snippets/<modelId>_latest.wav if confirmed present on startup scan
-  if (availableSnippets[modelId]) {
-    player.src = `/snippets/${modelId}?t=${Date.now()}`;
+  // 2. Se presente su disco, carica /snippets/<modelId>?sample_id=<sampleId>
+  if (availableSnippets[key]) {
+    player.src = `/snippets/${modelId}?sample_id=${sampleId}&t=${Date.now()}`;
     playerWrap.classList.remove("hidden");
   } else {
     player.src = "";
@@ -102,27 +117,50 @@ function hideNotice() {
   notice.classList.add("hidden");
 }
 
-// ---- Scan disk on startup for existing /saved_snippets/<model>_latest.wav files ----
+// ---- Controllo all'avvio per tutte le combinazioni di modello + campione ----
 async function scanExistingSnippets() {
-  // Only scan local self-hosted OSS models that save snippets to disk
-  const localModels = MODELS.map(m => m.id);
-  
-  await Promise.all(
-    localModels.map(async (modelId) => {
-      try {
-        const res = await fetch(`/snippets/${modelId}`, { method: "HEAD" });
-        availableSnippets[modelId] = res.ok;
-      } catch (err) {
-        availableSnippets[modelId] = false;
-      }
-    })
-  );
+  const allModels = MODELS.map(m => m.id);
+  const sampleKeys = ["intro", "breaking", "economy"];
+  const scanPromises = [];
 
-  // Load preview snippet after scan finishes
-  loadModelSnippet(selectedId);
+  allModels.forEach(modelId => {
+    sampleKeys.forEach(sampleId => {
+      const key = getSnippetKey(modelId, sampleId);
+      scanPromises.push(
+        fetch(`/snippets/${modelId}?sample_id=${sampleId}`, { method: "HEAD" })
+          .then(res => { availableSnippets[key] = res.ok; })
+          .catch(() => { availableSnippets[key] = false; })
+      );
+    });
+  });
+
+  await Promise.all(scanPromises);
+  
+  // Una volta completata la scansione, carica lo snippet di default ("intro")
+  loadModelSnippet(selectedId, selectedSample);
 }
 
-// ---- Preview Normalized Text ----
+// ---- Gestione dei pulsanti dei campioni (Pills) ----
+samplePills.forEach(pill => {
+  pill.addEventListener("click", () => {
+    samplePills.forEach(p => p.classList.remove("active"));
+    pill.classList.add("active");
+    
+    const sampleKey = pill.dataset.sample;
+    selectedSample = sampleKey;
+
+    // Aggiorna il testo nella textarea
+    if (SAMPLES[sampleKey]) {
+      textEl.value = SAMPLES[sampleKey];
+      updateCharCount();
+    }
+
+    // Carica immediatamente lo snippet audio locale per la combinazione scelta
+    loadModelSnippet(selectedId, selectedSample);
+  });
+});
+
+// ---- Anteprima del testo normalizzato ----
 normalizeBtn.addEventListener("click", async () => {
   const text = textEl.value;
   if (!text.trim()) { alert("Inserisci del testo prima."); return; }
@@ -155,7 +193,7 @@ useNorm.addEventListener("click", () => {
   normPanel.classList.add("hidden");
 });
 
-// ---- Read / Synthesize ----
+// ---- Generazione TTS / Lettura ----
 readBtn.addEventListener("click", async () => {
   const text = textEl.value;
   if (!text.trim()) { alert("Inserisci del testo prima."); return; }
@@ -172,6 +210,7 @@ readBtn.addEventListener("click", async () => {
       body: JSON.stringify({
         text,
         model_id: selectedId,
+        sample_id: selectedSample,
         normalize: normToggle.checked,
         punctuation: punctToggle.checked
       }),
@@ -190,9 +229,9 @@ readBtn.addEventListener("click", async () => {
     const blob = await res.blob();
     const url = URL.createObjectURL(blob);
     
-    // Store generated snippet URL in memory and mark disk snippet available
-    generatedSnippets[selectedId] = url;
-    availableSnippets[selectedId] = true;
+    const key = getSnippetKey(selectedId, selectedSample);
+    generatedSnippets[key] = url;
+    availableSnippets[key] = true;
 
     player.src = url;
     playerWrap.classList.remove("hidden");
@@ -206,32 +245,12 @@ readBtn.addEventListener("click", async () => {
   }
 });
 
-// Sample text presets
-const SAMPLES = {
-  intro: "Buongiorno. Sono la sintesi vocale di Quotidiano Nazionale. Ecco le ultime notizie.",
-  breaking: "A New York ha vinto le elezioni Zohran Mamdani, scatenando polemiche.",
-  economy: "Contratto enti locali 25-27, ecco di quanto aumentano gli stipendi. Tutte le novità della bozza di accordo."
-};
-
 function updateCharCount() {
   const len = textEl.value.length;
   charCount.textContent = `${len} caratteri`;
 }
 
 textEl.addEventListener("input", updateCharCount);
-
-samplePills.forEach(pill => {
-  pill.addEventListener("click", () => {
-    samplePills.forEach(p => p.classList.remove("active"));
-    pill.classList.add("active");
-    
-    const key = pill.dataset.sample;
-    if (SAMPLES[key]) {
-      textEl.value = SAMPLES[key];
-      updateCharCount();
-    }
-  });
-});
 
 clearTextBtn.addEventListener("click", () => {
   textEl.value = "";
@@ -240,7 +259,6 @@ clearTextBtn.addEventListener("click", () => {
   textEl.focus();
 });
 
-// Aggiungi questo all'avvio in app.js
 async function applyEnvironmentSettings() {
   try {
     const res = await fetch("/config");
@@ -250,17 +268,9 @@ async function applyEnvironmentSettings() {
     if (config.is_read_only) {
       const readBtn = document.getElementById("readBtn");
       if (readBtn) {
-        // Disabilita il pulsante
         readBtn.disabled = true;
         readBtn.classList.add("btn-disabled-cloud");
-
-        // Messaggio in italiano corretto e naturale
-        const tooltipText = "La generazione audio in tempo reale è disponibile solo in ambiente locale. Consulta il README per le istruzioni di esecuzione.";
-        
-        // Imposta l'attributo title nativo per il tooltip
-        readBtn.title = tooltipText;
-
-        // Se preferisci aggiornare anche il testo del bottone:
+        readBtn.title = "La generazione audio in tempo reale è disponibile solo in ambiente locale. Consulta il README per le istruzioni di esecuzione.";
         readBtn.innerHTML = `<i class="fas fa-ban"></i> Generazione disabilitata in Cloud`;
       }
     }
@@ -269,14 +279,12 @@ async function applyEnvironmentSettings() {
   }
 }
 
-// Chiamata durante la fase di inizializzazione
+// Inizializzazione dell'interfaccia utente
 applyEnvironmentSettings();
-
-// Initial startup execution
 renderList(ossList, "oss");
 renderList(paidList, "paid");
 renderDetail(selectedId);
 updateCharCount();
 
-// Scan for pre-existing .wav files in saved_snippets/
+// Avvia la scansione degli snippet salvati
 scanExistingSnippets();
