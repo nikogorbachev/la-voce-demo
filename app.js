@@ -66,7 +66,7 @@ function selectModel(id) {
 
 function loadModelSnippet(modelId, sampleId = selectedSample) {
   // Directly point src to snippet endpoint (or relative static file saved_snippets/${modelId}_${sampleId}.wav)
-  player.src = `/saved_snippets/${modelId}_${sampleId}.wav`;
+  player.src = `saved_snippets/${modelId}_${sampleId}.wav`;
   
   // Ensure player card is always visible
   if (playerWrap) {
