@@ -12,7 +12,6 @@ const notice = document.getElementById("notice");
 
 const textEl = document.getElementById("text");
 const readBtn = document.getElementById("readBtn");
-const readIcon = document.getElementById("readIcon");
 const normalizeBtn = document.getElementById("normalizeBtn");
 const normPanel = document.getElementById("normPanel");
 const normResult = document.getElementById("normResult");
@@ -25,27 +24,16 @@ const samplePills = document.querySelectorAll(".sample-pill");
 const charCount = document.getElementById("charCount");
 const clearTextBtn = document.getElementById("clearTextBtn");
 
-// Stato iniziale dell'applicazione
+// Initial state
 let selectedId = MODELS[0].id;
-let selectedSample = "intro"; // Campioni supportati: "intro", "breaking", "economy"
+let selectedSample = "intro";
 
-// Testi predefiniti associati ai 3 pulsanti
 const SAMPLES = {
   intro: "Buongiorno. Sono la sintesi vocale di Quotidiano Nazionale. Ecco le ultime notizie.",
   breaking: "“Impossibile da controllare”. Enorme incendio vicino a Madrid: le foto e i video. \n\nCarlos Novillo, responsabile della gestione delle emergenze del governo regionale: “Ha raggiunto il suo momento più critico, e attualmente supera la capacità dei vigili del fuoco di contenerlo”. Più di 100 mila evacuati in Francia.",
   economy: "Carburanti, 17 centesimi in meno sul diesel fino al 6 agosto. Salta la tassa sulle sigarette. \n\nNessun intervento sulla benzina e soprattutto nessun aumento delle accise sui tabacchi, dopo il no polemico di Lega e Forza Italia che ha aperto uno scontro nella maggioranza.",
   weather: "Fiammata africana, dopo i nubifragi torna il super caldo: attesi 40 gradi in Emilia Romagna, ecco quando. \n\nSi apre un periodo di alta pressione che potrebbe proseguire per minimo 7-10 giorni, con un graduale aumento termico fino al prossimo weekend, la svolta ad agosto. Ad agosto tempo stabile e soleggiato con temperature decisamente superiori alla norma."
 };
-
-// Cache dei blob generati durante la sessione corrente in memoria
-const generatedSnippets = {};
-
-// Mappa dei file disponibili su disco (es. key = "vits_intro")
-const availableSnippets = {};
-
-function getSnippetKey(modelId, sampleId = selectedSample) {
-  return `${modelId}_${sampleId}`;
-}
 
 function renderList(container, group) {
   container.innerHTML = "";
@@ -72,27 +60,17 @@ function selectModel(id) {
   renderDetail(id);
   hideNotice();
   
-  // Carica lo snippet audio corrispondente al modello e al campione attivo
+  // Instantly point player src to the active model + sample snippet
   loadModelSnippet(id, selectedSample);
 }
 
 function loadModelSnippet(modelId, sampleId = selectedSample) {
-  const key = getSnippetKey(modelId, sampleId);
-
-  // 1. Priorità all'audio generato nella sessione di lavoro corrente
-  if (generatedSnippets[key]) {
-    player.src = generatedSnippets[key];
+  // Directly point src to snippet endpoint (or relative static file saved_snippets/${modelId}_${sampleId}.wav)
+  player.src = `/saved_snippets/${modelId}_${sampleId}.wav`;
+  
+  // Ensure player card is always visible
+  if (playerWrap) {
     playerWrap.classList.remove("hidden");
-    return;
-  }
-
-  // 2. Se presente su disco, carica /snippets/<modelId>?sample_id=<sampleId>
-  if (availableSnippets[key]) {
-    player.src = `/snippets/${modelId}?sample_id=${sampleId}&t=${Date.now()}`;
-    playerWrap.classList.remove("hidden");
-  } else {
-    player.src = "";
-    playerWrap.classList.add("hidden");
   }
 }
 
@@ -109,40 +87,11 @@ function renderDetail(id) {
   punctToggle.checked = (id === "vits");
 }
 
-function showNotice(msg) {
-  notice.textContent = msg;
-  notice.classList.remove("hidden");
-}
-
 function hideNotice() {
-  notice.classList.add("hidden");
+  if (notice) notice.classList.add("hidden");
 }
 
-// Testi predefiniti aggiornati con il meteo
-
-
-// Aggiorna la funzione scanExistingSnippets per scansionare anche 'weather'
-async function scanExistingSnippets() {
-  const allModels = MODELS.map(m => m.id);
-  const sampleKeys = ["intro", "breaking", "economy", "weather"];
-  const scanPromises = [];
-
-  allModels.forEach(modelId => {
-    sampleKeys.forEach(sampleId => {
-      const key = getSnippetKey(modelId, sampleId);
-      scanPromises.push(
-        fetch(`/snippets/${modelId}?sample_id=${sampleId}`, { method: "HEAD" })
-          .then(res => { availableSnippets[key] = res.ok; })
-          .catch(() => { availableSnippets[key] = false; })
-      );
-    });
-  });
-
-  await Promise.all(scanPromises);
-  loadModelSnippet(selectedId, selectedSample);
-}
-
-// ---- Gestione dei pulsanti dei campioni (Pills) ----
+// Sample Pill Clicks
 samplePills.forEach(pill => {
   pill.addEventListener("click", () => {
     samplePills.forEach(p => p.classList.remove("active"));
@@ -151,18 +100,17 @@ samplePills.forEach(pill => {
     const sampleKey = pill.dataset.sample;
     selectedSample = sampleKey;
 
-    // Aggiorna il testo nella textarea
     if (SAMPLES[sampleKey]) {
       textEl.value = SAMPLES[sampleKey];
       updateCharCount();
     }
 
-    // Carica immediatamente lo snippet audio locale per la combinazione scelta
+    // Instantly load new snippet for selected pill
     loadModelSnippet(selectedId, selectedSample);
   });
 });
 
-// ---- Anteprima del testo normalizzato ----
+// Normalized text preview panel logic
 normalizeBtn.addEventListener("click", async () => {
   const text = textEl.value;
   if (!text.trim()) { alert("Inserisci del testo prima."); return; }
@@ -195,58 +143,6 @@ useNorm.addEventListener("click", () => {
   normPanel.classList.add("hidden");
 });
 
-// ---- Generazione TTS / Lettura ----
-readBtn.addEventListener("click", async () => {
-  const text = textEl.value;
-  if (!text.trim()) { alert("Inserisci del testo prima."); return; }
-
-  hideNotice();
-  readIcon.classList.remove("fa-play");
-  readIcon.classList.add("fa-spinner", "loading");
-  readBtn.disabled = true;
-
-  try {
-    const res = await fetch("/tts", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        text,
-        model_id: selectedId,
-        sample_id: selectedSample,
-        normalize: normToggle.checked,
-        punctuation: punctToggle.checked
-      }),
-    });
-
-    if (res.status === 501 || res.status === 503) {
-      const err = await res.json();
-      showNotice(err.detail);
-      return;
-    }
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.detail || "Sintesi vocale fallita");
-    }
-
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    
-    const key = getSnippetKey(selectedId, selectedSample);
-    generatedSnippets[key] = url;
-    availableSnippets[key] = true;
-
-    player.src = url;
-    playerWrap.classList.remove("hidden");
-    await player.play();
-  } catch (err) {
-    alert("Errore TTS: " + err.message);
-  } finally {
-    readIcon.classList.remove("fa-spinner", "loading");
-    readIcon.classList.add("fa-play");
-    readBtn.disabled = false;
-  }
-});
-
 function updateCharCount() {
   const len = textEl.value.length;
   charCount.textContent = `${len} caratteri`;
@@ -261,32 +157,11 @@ clearTextBtn.addEventListener("click", () => {
   textEl.focus();
 });
 
-async function applyEnvironmentSettings() {
-  try {
-    const res = await fetch("/config");
-    if (!res.ok) return;
-    const config = await res.json();
-
-    if (config.is_read_only) {
-      const readBtn = document.getElementById("readBtn");
-      if (readBtn) {
-        readBtn.disabled = true;
-        readBtn.classList.add("btn-disabled-cloud");
-        readBtn.title = "La generazione audio in tempo reale è disponibile solo in ambiente locale. Consulta il README per le istruzioni di esecuzione.";
-        readBtn.innerHTML = `<i class="fas fa-ban"></i> Generazione disabilitata in Cloud`;
-      }
-    }
-  } catch (err) {
-    console.error("Impossibile recuperare la configurazione dell'ambiente:", err);
-  }
-}
-
-// Inizializzazione dell'interfaccia utente
-applyEnvironmentSettings();
+// Initialize UI
 renderList(ossList, "oss");
 renderList(paidList, "paid");
 renderDetail(selectedId);
 updateCharCount();
 
-// Avvia la scansione degli snippet salvati
-scanExistingSnippets();
+// Instantly load audio snippet for initial model (VITS) + initial sample (Intro QN)
+loadModelSnippet(selectedId, selectedSample);

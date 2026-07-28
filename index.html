@@ -105,15 +105,16 @@
               </label>
             </div>
 
+            <!-- Controls: Read button disabled by default -->
             <div class="controls">
-              <button id="readBtn" class="btn-primary" title="Leggi testo">
-                <i id="readIcon" class="fa fa-play"></i> <span>Genera Audio</span>
+              <button id="readBtn" class="btn-primary btn-disabled-cloud" disabled title="Seleziona un campione preimpostato per ascoltare l'audio della demo">
+                <i id="readIcon" class="fa fa-ban"></i> <span>Generazione disabilitata (Demo)</span>
               </button>
-              <button id="normalizeBtn" class="btn-secondary" title="Vedi testo normalizzato">
+              <button id="normalizeBtn" class="btn-secondary btn-disabled-cloud" disabled title="Vedi testo normalizzato">
                 <i class="fa fa-eye"></i> <span>Vedi testo normalizzato</span>
               </button>
             </div>
-          </div>
+
 
           <div id="normPanel" class="panel hidden">
             <div class="panel-header">
@@ -126,7 +127,7 @@
             </div>
           </div>
 
-          <div id="playerWrap" class="player-wrap hidden">
+          <div id="playerWrap" class="player-wrap">
             <div class="player-card">
               <span class="player-label"><i class="fa-solid fa-waveform"></i> Output Sintetizzato</span>
               <audio id="player" controls></audio>
