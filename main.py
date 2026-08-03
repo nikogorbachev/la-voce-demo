@@ -61,22 +61,6 @@ try:
 except Exception:
     HAS_CHATTERBOX = False
 
-try:
-    from parler_tts import ParlerTTSForConditionalGeneration
-    from transformers import AutoTokenizer
-    HAS_PARLER = True
-except Exception:
-    HAS_PARLER = False
-
-try:
-    from f5_tts.model import DiT, CFM
-    from f5_tts.infer.utils_infer import infer_process, load_vocoder
-    from f5_tts.model.utils import get_tokenizer 
-    from huggingface_hub import hf_hub_download
-    from safetensors.torch import load_file
-    HAS_F5 = True
-except Exception:
-    HAS_F5 = False
 
 torch.set_num_threads(4)
 
@@ -147,7 +131,7 @@ def get_kokoro():
     global kokoro_pipeline
     if kokoro_pipeline is None:
         if not HAS_KOKORO: raise HTTPException(status_code=500, detail="kokoro library not installed.")
-        kokoro_pipeline = KPipeline(lang_code='i')
+        kokoro_pipeline = KPipeline(lang_code='i', device='cpu')
     return kokoro_pipeline
 
 chatterbox_model = None
@@ -162,36 +146,6 @@ parler_model = None
 parler_tokenizer = None
 parler_description_tokenizer = None
 
-def get_parler():
-    global parler_model, parler_tokenizer, parler_description_tokenizer
-    if parler_model is None:
-        if not HAS_PARLER: raise HTTPException(status_code=500, detail="parler-tts library not installed.")
-        model_id = "parler-tts/parler-tts-mini-multilingual-v1.1"
-        parler_model = ParlerTTSForConditionalGeneration.from_pretrained(model_id).to("cpu")
-        parler_tokenizer = AutoTokenizer.from_pretrained(model_id)
-        parler_description_tokenizer = AutoTokenizer.from_pretrained(parler_model.config.text_encoder._name_or_path)
-    return parler_model, parler_tokenizer, parler_description_tokenizer
-
-f5_model = None
-vocos_vocoder = None
-
-def get_f5():
-    global f5_model, vocos_vocoder
-    if f5_model is None:
-        if not HAS_F5: raise HTTPException(status_code=500, detail="f5-tts library not installed.")
-        ckpt_local_path = hf_hub_download(repo_id="alien79/F5-TTS-italian", filename="model_159600.safetensors")
-        vocab_local_path = hf_hub_download(repo_id="alien79/F5-TTS-italian", filename="vocab.txt")
-        vocab_char_map, vocab_size = get_tokenizer(vocab_local_path, "custom")
-        transformer = DiT(dim=1024, depth=22, heads=16, ff_mult=2, text_dim=512, conv_layers=4, text_num_embeds=vocab_size)
-        cfm_model = CFM(transformer=transformer, odeint_kwargs=dict(method="euler"), audio_drop_prob=0.0, cond_drop_prob=0.0, vocab_char_map=vocab_char_map).to("cpu")
-        state_dict = load_file(ckpt_local_path)
-        state_dict = state_dict.get("ema_model_state_dict", state_dict.get("model_state_dict", state_dict))
-        state_dict = {k.replace("module.", ""): v for k, v in state_dict.items()}
-        cfm_model.load_state_dict(state_dict, strict=False)
-        cfm_model.eval()
-        f5_model = cfm_model
-        vocos_vocoder = load_vocoder(vocoder_name="vocos", device="cpu")
-    return f5_model, vocos_vocoder
 
 try:
     from cartesia import AsyncCartesia
@@ -354,32 +308,6 @@ async def synthesize_chatterbox(text_in: str, ref_audio_path: str = None, sample
         return save_and_wrap_audio(wav_np, cb_model.sr, "chatterbox", sample_id)
     return await asyncio.to_thread(_do_synth)
 
-async def synthesize_parler(text_in: str, description: str = None, sample_id: str = "intro") -> io.BytesIO:
-    model, tokenizer, desc_tokenizer = get_parler()
-    if not description:
-        description = "Julia's voice is clear and expressive with a slightly warm tone, moderate pace, very high audio quality, close-mic recording, like a news narrator"
-    def _do_synth():
-        with synth_lock:
-            input_ids = desc_tokenizer(description, return_tensors="pt").input_ids
-            prompt_input_ids = tokenizer(text_in, return_tensors="pt").input_ids
-            generation = model.generate(input_ids=input_ids, prompt_input_ids=prompt_input_ids)
-            audio_arr = generation.cpu().numpy().squeeze()
-        return save_and_wrap_audio(audio_arr, model.config.sampling_rate, "parler", sample_id)
-    return await asyncio.to_thread(_do_synth)
-
-async def synthesize_f5(text_in: str, ref_audio_path: str = None, sample_id: str = "intro") -> io.BytesIO:
-    f5, vocoder = get_f5()
-    def _do_synth():
-        with synth_lock:
-            with torch.no_grad():
-                ref_path = ref_audio_path if (ref_audio_path and os.path.exists(ref_audio_path)) else "example.wav"
-                wav_np, sr, _ = infer_process(
-                    ref_audio_path=ref_path,
-                    ref_text="I lettori, le persone erano — arrabbiate con noi, gli dicevano ma eeh che fate?",
-                    gen_text=text_in, model_obj=f5, vocoder=vocoder, device="cpu", show_info=print, nfe_step=16,
-                )
-        return save_and_wrap_audio(wav_np, sr, "f5", sample_id)
-    return await asyncio.to_thread(_do_synth)
 
 async def synthesize_cartesia(text_in: str, sample_id: str = "intro") -> io.BytesIO:
     client = get_cartesia_client()

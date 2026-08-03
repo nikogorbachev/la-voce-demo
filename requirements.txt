@@ -9,3 +9,9 @@ transformers==5.2.0
 torchaudio
 dotenv
 coqui-tts[codec]
+kokoro
+chatterbox-tts
+cartesia
+google-genai
+elevenlabs
+mistralai
