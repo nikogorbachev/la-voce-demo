@@ -26,7 +26,7 @@ const MODELS = [
   {
     id: "chatterbox",
     group: "oss",
-    name: "Chatterbox / Chatterbox-Turbo",
+    name: "Chatterbox ",
     short: "Qualità elevata · controllo medio · pesante/costoso",
     desc: "Modello di Resemble AI con licenza MIT. Supporta il controllo sul timbro tramite voice cloning da un campione audio. Non supporta il controllo della prosodia o dello stile di lettura.",
     pros: ["Licenza MIT: uso commerciale e finetuning senza vincoli", "Supporta il voice cloning"],
