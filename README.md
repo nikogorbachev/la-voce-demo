@@ -12,7 +12,7 @@ Inspired by and based on [vits-finetuning-news-it](https://github.com/n1kg0r/vit
 
 A static version with pre-made audio samples for every model is deployed via GitHub Pages from the `gh-pages` branch:
 
-**[[La Voce di QN Demo (Static)](https://nikogorbachev.github.io/la-voce-demo/)]**
+**[La Voce di QN Demo (Static)(https://nikogorbachev.github.io/la-voce-demo/)]**
 
 This lets anyone listen to and compare model outputs without installing anything.
 
