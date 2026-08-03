@@ -135,7 +135,7 @@ The finetuned checkpoint behind "La Voce di QN" clones the voice of **Agnese Pin
 ## Notes
 
 - The app loads one finetuned VITS model (~1GB) into memory at a time — avoid running multiple large models simultaneously on the same instance.
-- Chatterbox and Parler-TTS are notably heavier than VITS/Kokoro; CPU-only inference is viable for testing but slow (minutes per article) — see the **Costi** tab for measured/estimated compute costs and a CPU-vs-GPU breakdown.
+- Chatterbox is notably heavier than VITS/Kokoro; CPU-only inference is viable for testing but slow (minutes per article) — see the **Costi** tab for measured/estimated compute costs and a CPU-vs-GPU breakdown.
 
 ---
 
