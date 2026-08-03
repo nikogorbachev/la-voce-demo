@@ -8,3 +8,4 @@ torch
 transformers==5.2.0
 torchaudio
 dotenv
+coqui-tts[codec]
