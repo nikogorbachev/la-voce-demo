@@ -129,7 +129,7 @@ PHONETIC_LEXICON = {
 UNCONFIGURED_PROVIDERS = set()
 synth_lock = threading.Lock()
 
-device = "cuda" if torch.cuda.is_available() else "cpu"
+device = "cpu"
 
 vits_checkpoint_path = "vits_it_female.pth"
 vits_config_path = "config_it_female.json"
