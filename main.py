@@ -494,10 +494,6 @@ async def tts_endpoint(request: Request):
         wav_buf = await synthesize_kokoro(processed_text, sample_id)
     elif model_id == "chatterbox":
         wav_buf = await synthesize_chatterbox(processed_text, 'example.wav', sample_id)
-    elif model_id == "parler":
-        wav_buf = await synthesize_parler(processed_text, description, sample_id)
-    elif model_id == "f5":
-        wav_buf = await synthesize_f5(processed_text, 'example.wav', sample_id)
     elif model_id == "cartesia":
         wav_buf = await synthesize_cartesia(processed_text, sample_id)
     elif model_id == "gemini":
