@@ -9,7 +9,7 @@ const MODELS = [
     id: "vits",
     group: "oss",
     name: "VITS (in-house, finetuned)",
-    short: "Finetuning nostro · più controllo · leggero",
+    short: "Voce custom · più controllo · leggero",
     desc: "Modello VITS finetunato internamente sulla voce della direttrice Agnese Pini. Qualità in plateau dopo circa 66k step di finetuning. Il prossimo miglioramento richiede la raccolta di più dati e un ulteriore addestramento. Nessun costo di inferenza oltre al compute GCP.",
     pros: ["Dati mai fuori dal nostro cloud", "Costo di inferenza pari al solo compute GCP", "Pieno controllo su voce e pipeline"],
     cons: ["Qualità non ancora al livello dei provider premium", "Richiede un nuovo ciclo di lavoro per migliorare la resa"],
