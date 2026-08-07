@@ -34,7 +34,7 @@
 
     <div class="callout" style="margin-bottom:32px;">
       <div class="callout-title"><i class="fa-solid fa-calculator"></i> Come leggere questi numeri</div>
-      <p>Tutti i costi "per articolo" assumono un pezzo da <strong>~3.000 caratteri (~500 parole)</strong>, dimensione tipica di una notizia. I costi self-hosted usano le tariffe on-demand ufficiali GCP (us-central1, nessuno sconto CUD/sustained-use applicato). Dove il fornitore terzo non pubblica un prezzo lineare per carattere (Cartesia, Gemini), il numero è una <strong>stima</strong> esplicitamente segnalata come tale.</p>
+      <p>Tutti i costi e i tempi di generazione assumono un articolo di test standard da <strong>~3.000-4.000 caratteri (~500-700 parole)</strong>, dimensione tipica di una notizia. I tempi riportati rappresentano le misurazioni medie reali di inferenza/risposta via API. I costi self-hosted usano le tariffe on-demand ufficiali GCP (us-central1, nessun sconto CUD applicato). Dove il fornitore terzo non pubblica un prezzo lineare per carattere (Cartesia, Gemini), il numero è una <strong>stima</strong> esplicitamente segnalata.</p>
     </div>
 
     <div class="section-block">
@@ -72,7 +72,7 @@
               <td><strong>Chatterbox</strong></td>
               <td>MIT / Custom</td>
               <td>GPU T4 (n1-standard-4 + T4)</td>
-              <td><strong>~$394.00 / mese</strong></td>
+              <td><strong>~$394 / mese</strong></td>
               <td><span class="cost-tag free">~$0.005 - $0.012</span></td>
               <td class="notes">Richiede GPU per inferenza in tempo reale. Il costo fisso si ammortizza rapidamente sopra i 1.000 articoli/mese.</td>
             </tr>
@@ -86,40 +86,55 @@
       <div class="table-card">
         <table class="pricing">
           <thead>
-            <tr><th>Provider</th><th>Voice Cloning</th><th>Prezzo ufficiale</th><th>Costo / articolo</th><th>Costo / 100 articoli</th></tr>
+            <tr>
+              <th>Provider</th>
+              <th>Voice Cloning</th>
+              <th>Prezzo ufficiale</th>
+              <th>Tempo&nbsp;medio<br />(~3.5k car.)</th>
+              <th>Costo / articolo</th>
+              <th>Costo / 100 articoli</th>
+            </tr>
           </thead>
           <tbody>
             <tr>
-              <td><strong>Voxtral (Mistral)</strong></td><td>Sì</td>
+              <td><strong>Voxtral (Mistral)</strong></td>
+              <td>Sì</td>
               <td>$0.016 / 1K car.</td>
+              <td><strong>~9s</strong></td>
               <td><span class="cost-tag paid">$0.05</span></td>
               <td>$4.80</td>
             </tr>
             <tr>
-              <td><strong>ElevenLabs</strong> — Multilingual v2/v3</td><td>Sì</td>
+              <td><strong>Cartesia (Sonic)</strong></td>
+              <td>Sì (piano Pro+)</td>
+              <td>A crediti: Free 20K/m, Pro $5, Startup $49</td>
+              <td><strong>~41s</strong></td>
+              <td><span class="cost-tag paid">~$0.10 <span class="placeholder-tag">stima</span></span></td>
+              <td>~$10.00 <span class="placeholder-tag">stima</span></td>
+            </tr>
+            <tr>
+              <td><strong>ElevenLabs</strong> — Multilingual v2/v3</td>
+              <td>Sì</td>
               <td>$0.10 / 1K car.</td>
+              <td><strong>~118s</strong></td>
               <td><span class="cost-tag paid">$0.30</span></td>
               <td>$30.00</td>
             </tr>
             <tr>
-              <td><strong>Gemini 2.5 Pro TTS</strong></td><td>No</td>
-              <td>$1/1M token input (testo) + $20/1M token output (audio)</td>
+              <td><strong>Gemini 2.5 Pro TTS</strong></td>
+              <td>No</td>
+              <td>$1/1M token in + $20/1M token out</td>
+              <td><strong>~134s</strong></td>
               <td><span class="cost-tag paid">~$0.12 <span class="placeholder-tag">stima</span></span></td>
               <td>~$12.00 <span class="placeholder-tag">stima</span></td>
-            </tr>
-            <tr>
-              <td><strong>Cartesia (Sonic)</strong></td><td>Sì (piano Pro+)</td>
-              <td>A crediti: Free 20K/mese, Pro $5→100K, Startup $49→1.25M, Scale $299→8M</td>
-              <td><span class="cost-tag paid">~$0.10 <span class="placeholder-tag">stima</span></span></td>
-              <td>~$10.00 <span class="placeholder-tag">stima</span></td>
             </tr>
           </tbody>
         </table>
       </div>
-      <p style="color:var(--muted); font-size:13px; margin-top:10px;">
-        <strong>Modello di fatturazione:</strong> 
-        Mistral (Voxtral), ElevenLabs e Gemini adottano un modello <strong>pay-as-you-go lineare</strong> (paghi solo ciò che consumi per carattere/token). 
-        <strong>Cartesia</strong> richiede un abbonamento mensile a scaglioni (Pro $5/m, Startup $49/m, Scale $299/m) per sbloccare crediti inclusi e funzionalità come il voice cloning.
+      <p style="color:var(--text-muted); font-size:13px; margin-top:10px;">
+        <strong>Modello di fatturazione &amp; Latenza:</strong> 
+        Mistral (Voxtral), ElevenLabs e Gemini adottano un modello <strong>pay-as-you-go lineare</strong>. 
+        <strong>Cartesia</strong> richiede un abbonamento mensile a scaglioni. Notare le forti differenze di latenza: <strong>Voxtral</strong> elabora l'intero articolo in meno di 10 secondi, mentre provider come <strong>ElevenLabs</strong> e <strong>Gemini</strong> richiedono oltre 2 minuti per restituire il file audio completo.
       </p>
     </div>
 
